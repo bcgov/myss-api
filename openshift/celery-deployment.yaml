@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myss-celery
+  labels:
+    app: myss
+    component: celery
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myss
+      component: celery
+  template:
+    metadata:
+      labels:
+        app: myss
+        component: celery
+    spec:
+      containers:
+        - name: celery-worker
+          image: myss-api:latest
+          command:
+            - celery
+            - -A
+            - app.celery_app
+            - worker
+            - --loglevel=info
+            - -Q
+            - pdf_generation,notifications_bulk,notifications_transactional
+          envFrom:
+            - secretRef:
+                name: myss-db-secret
+            - secretRef:
+                name: myss-redis-secret
+            - secretRef:
+                name: myss-icm-secret
+            - secretRef:
+                name: myss-mail-secret
+            - configMapRef:
+                name: myss-api-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"

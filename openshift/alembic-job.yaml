@@ -1,0 +1,29 @@
+# Standalone migration Job for use in CI or manual migration runs.
+# In normal deploys, migration runs as an initContainer in myss-api-deployment.yaml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: myss-alembic-migrate
+  labels:
+    app: myss
+    component: migration
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: alembic
+          image: myss-api:latest
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - secretRef:
+                name: myss-db-secret
+            - configMapRef:
+                name: myss-api-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "100m"

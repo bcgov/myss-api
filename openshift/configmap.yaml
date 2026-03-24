@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myss-api-config
+  labels:
+    app: myss
+data:
+  ICM_BASE_URL: "https://icm.gov.bc.ca/siebel/v1.0"
+  REDIS_SESSION_TTL_SECONDS: "900"
+  REDIS_CACHE_BANNERS_TTL_SECONDS: "300"
+  REDIS_CACHE_PAYMENT_TTL_SECONDS: "3600"
+  ICM_CIRCUIT_BREAKER_THRESHOLD: "5"
+  ICM_CIRCUIT_BREAKER_RECOVERY_SECONDS: "30"
+  CORS_ALLOWED_ORIGINS: "https://myss.gov.bc.ca"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myss-upload-config
+  labels:
+    app: myss
+data:
+  MAX_FILE_SIZE_BYTES: "5242880"
+  MAX_TOTAL_SIZE_BYTES: "20971520"
+  ALLOWED_MIME_TYPES: "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/tiff"
+  AV_WEBHOOK_SECRET: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myss-frontend-config
+  labels:
+    app: myss
+data:
+  API_BASE_URL: "http://myss-api:8000"
+  SESSION_WARNING_MINUTES: "14"
+  PUBLIC_ENVIRONMENT_NAME: "DEV1"

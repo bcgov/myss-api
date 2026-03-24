@@ -1,0 +1,3215 @@
+openapi: 3.0.3
+info:
+  title: MySelfServe API
+  version: 0.1.0
+  description: |
+    BC Government Income Assistance Self-Service Portal API.
+
+    MySS 2.0 provides self-service capabilities for BC income assistance clients
+    to manage service requests, monthly reports, payments, employment plans,
+    messages, and account settings. Ministry workers can access client data
+    through an admin support view.
+
+    ## Authentication
+
+    Most endpoints require a JWT Bearer token issued via BCeID/IDIR through
+    Keycloak OIDC. The token is signed with HS256 and contains claims for
+    `sub` (user_id), `role`, `bceid_guid`, and `idir_username`.
+
+    ## Roles
+
+    - **CLIENT** — BCeID-authenticated income assistance clients
+    - **WORKER** — IDIR-authenticated ministry staff (includes ADMIN)
+    - **ADMIN** — System administrators (inherits WORKER permissions)
+
+    ## Error Handling
+
+    Errors from the upstream Siebel/ICM system are mapped to standard HTTP
+    status codes with structured JSON error bodies. A circuit breaker protects
+    the application during ICM outages (5 failures → 30s open window → 503).
+  contact:
+    name: MySS Development Team
+  license:
+    name: BC Government
+    url: https://www2.gov.bc.ca/
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://myss-api-dev.apps.silver.devops.gov.bc.ca
+    description: Development (OpenShift)
+  - url: https://myss-api-test.apps.silver.devops.gov.bc.ca
+    description: Test (OpenShift)
+  - url: https://myss-api.apps.silver.devops.gov.bc.ca
+    description: Production (OpenShift)
+
+tags:
+  - name: Health
+    description: Application health and readiness probes
+  - name: Eligibility
+    description: Public eligibility estimator (no authentication required)
+  - name: Registration
+    description: Multi-step client registration flow
+  - name: Service Requests
+    description: Create, draft, submit, and manage service requests
+  - name: Monthly Reports
+    description: SD81 monthly income reports
+  - name: Notifications
+    description: Banner notifications
+  - name: Messages
+    description: Client inbox, replies, and message signing
+  - name: Payment
+    description: Payment info, schedules, MIS data, and T5 slips
+  - name: Employment Plans
+    description: View and sign employment plans
+  - name: Account
+    description: Profile, contact info, and case members
+  - name: PIN
+    description: PIN validation, change, and reset
+  - name: Attachments
+    description: File upload, virus scanning, and download
+  - name: "Admin: Support View"
+    description: Worker support view for accessing client data
+  - name: "Admin: AO Registration"
+    description: Administrative override registration flow
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ──────────────────────────────────────────────
+  # Health
+  # ──────────────────────────────────────────────
+  /health:
+    get:
+      operationId: healthCheck
+      tags: [Health]
+      summary: Application health check
+      description: Returns the health status of the API, database, and Redis.
+      security: []
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  # ──────────────────────────────────────────────
+  # Eligibility Estimator
+  # ──────────────────────────────────────────────
+  /eligibility-estimator/calculate:
+    post:
+      operationId: calculateEligibility
+      tags: [Eligibility]
+      summary: Calculate eligibility estimate
+      description: |
+        Public endpoint. Calculates an estimated monthly benefit amount
+        based on household composition, income, and assets. Uses database
+        rate tables with a fallback to hardcoded rates if the DB is unavailable.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EligibilityRequest"
+      responses:
+        "200":
+          description: Eligibility calculation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EligibilityResponse"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+
+  # ──────────────────────────────────────────────
+  # Registration
+  # ──────────────────────────────────────────────
+  /registration/start:
+    post:
+      operationId: startRegistration
+      tags: [Registration]
+      summary: Start a new registration session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRegistrationRequest"
+      responses:
+        "201":
+          description: Registration session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartRegistrationResponse"
+
+  /registration/verify/{invite_token}:
+    get:
+      operationId: verifyInviteToken
+      tags: [Registration]
+      summary: Verify an email invitation token
+      description: Validates the invite token and redirects to the PIN creation step.
+      security: []
+      parameters:
+        - name: invite_token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to PIN creation step
+          headers:
+            Location:
+              schema:
+                type: string
+                example: /registration/{session_token}/pin
+        "410":
+          description: Token expired, used, or not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /registration/{token}/step/{step_number}:
+    get:
+      operationId: getRegistrationStep
+      tags: [Registration]
+      summary: Get current registration step state
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: step_number
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Step state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepStateResponse"
+
+  /registration/{token}/personal-info:
+    post:
+      operationId: submitPersonalInfo
+      tags: [Registration]
+      summary: Submit personal information (step 2)
+      description: |
+        Submits the applicant's personal information including name, SIN, DOB,
+        contact details, and optional spouse information. SIN is validated
+        via Luhn algorithm; PHN via MOD 11; age must be >= 16.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonalInfoRequest"
+      responses:
+        "201":
+          description: Personal info accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonalInfoResponse"
+        "409":
+          description: Previous steps not completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+
+  /registration/{token}/pin:
+    post:
+      operationId: createRegistrationPin
+      tags: [Registration]
+      summary: Create PIN (step 4)
+      description: Sets the client's 4-digit PIN after email verification.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinRequest"
+      responses:
+        "201":
+          description: PIN created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PinResponse"
+        "409":
+          description: Email verification not completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /registration/{token}/link-bceid:
+    post:
+      operationId: linkBceid
+      tags: [Registration]
+      summary: Link BCeID account (step 5)
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: BCeID link pending
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: pending
+                  message:
+                    type: string
+                    example: BCeID link not yet implemented
+        "409":
+          description: Previous steps not completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ──────────────────────────────────────────────
+  # Service Requests
+  # ──────────────────────────────────────────────
+  /service-requests:
+    get:
+      operationId: listServiceRequests
+      tags: [Service Requests]
+      summary: List client's service requests
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Paginated list of service requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SRListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    post:
+      operationId: createServiceRequest
+      tags: [Service Requests]
+      summary: Create a new service request draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SRCreateRequest"
+      responses:
+        "201":
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SRDraftResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Active SR of this type already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /service-requests/eligible-types:
+    get:
+      operationId: getEligibleSRTypes
+      tags: [Service Requests]
+      summary: Get SR types the client is eligible to submit
+      parameters:
+        - name: case_status
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of eligible SR types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SRTypeMetadata"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /service-requests/{sr_id}:
+    get:
+      operationId: getServiceRequest
+      tags: [Service Requests]
+      summary: Get service request details
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Service request details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SRDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Service request not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /service-requests/{sr_id}/draft:
+    get:
+      operationId: getServiceRequestDraft
+      tags: [Service Requests]
+      summary: Get the draft state of a service request
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Draft data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SRDraftResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /service-requests/{sr_id}/form:
+    get:
+      operationId: getServiceRequestForm
+      tags: [Service Requests]
+      summary: Get the dynamic form schema for a service request
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sr_type
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/SRType"
+      responses:
+        "200":
+          description: Dynamic form schema
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DynamicFormSchema"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Form schema not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    put:
+      operationId: updateServiceRequestForm
+      tags: [Service Requests]
+      summary: Save form answers for a service request draft
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SRFormUpdateRequest"
+      responses:
+        "200":
+          description: Draft updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SRDraftResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /service-requests/{sr_id}/submit:
+    post:
+      operationId: submitServiceRequest
+      tags: [Service Requests]
+      summary: Submit a service request
+      description: |
+        Submits the service request to ICM. Requires a valid PIN and
+        declaration acceptance. Some SR types also require a spouse PIN.
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SRSubmitRequest"
+      responses:
+        "200":
+          description: Service request submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SRSubmitResponse"
+        "400":
+          description: Invalid request (e.g. missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Invalid PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /service-requests/{sr_id}/withdraw:
+    post:
+      operationId: withdrawServiceRequest
+      tags: [Service Requests]
+      summary: Withdraw a service request
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SRWithdrawRequest"
+      responses:
+        "204":
+          description: Service request withdrawn
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          description: ICM error during withdrawal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Service request already withdrawn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ──────────────────────────────────────────────
+  # Monthly Reports
+  # ──────────────────────────────────────────────
+  /monthly-reports:
+    get:
+      operationId: listMonthlyReports
+      tags: [Monthly Reports]
+      summary: List monthly reports
+      parameters:
+        - name: days_ago
+          in: query
+          description: Number of days of history to retrieve
+          schema:
+            type: integer
+            minimum: 1
+            default: 365
+      responses:
+        "200":
+          description: List of monthly reports
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SD81ListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    post:
+      operationId: createMonthlyReport
+      tags: [Monthly Reports]
+      summary: Create a new monthly report draft
+      responses:
+        "201":
+          description: Monthly report draft created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sd81_id:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /monthly-reports/current-period:
+    get:
+      operationId: getCurrentReportPeriod
+      tags: [Monthly Reports]
+      summary: Get the current reporting period schedule
+      parameters:
+        - name: case_number
+          in: query
+          schema:
+            type: string
+            default: default
+      responses:
+        "200":
+          description: Current reporting period
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChequeScheduleWindow"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /monthly-reports/{sd81_id}/answers:
+    get:
+      operationId: getMonthlyReportAnswers
+      tags: [Monthly Reports]
+      summary: Get saved answers for a monthly report
+      parameters:
+        - name: sd81_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Report answers
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    put:
+      operationId: saveMonthlyReportAnswers
+      tags: [Monthly Reports]
+      summary: Save answers for a monthly report
+      parameters:
+        - name: sd81_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Answers saved
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /monthly-reports/{sd81_id}/submit:
+    post:
+      operationId: submitMonthlyReport
+      tags: [Monthly Reports]
+      summary: Submit a monthly report
+      parameters:
+        - name: sd81_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SD81SubmitRequest"
+      responses:
+        "200":
+          description: Report submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SD81SubmitResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Invalid PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Submission period closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /monthly-reports/{sd81_id}/restart:
+    post:
+      operationId: restartMonthlyReport
+      tags: [Monthly Reports]
+      summary: Restart a monthly report
+      parameters:
+        - name: sd81_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Report restarted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /monthly-reports/{sd81_id}/pdf:
+    get:
+      operationId: downloadMonthlyReportPdf
+      tags: [Monthly Reports]
+      summary: Download a monthly report as PDF
+      parameters:
+        - name: sd81_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: PDF document
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: "inline; filename=SD81_12345.pdf"
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ──────────────────────────────────────────────
+  # Notifications & Messages
+  # ──────────────────────────────────────────────
+  /notifications/banners:
+    get:
+      operationId: getBanners
+      tags: [Notifications]
+      summary: Get active banner notifications
+      responses:
+        "200":
+          description: Active banners
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BannerListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /messages:
+    get:
+      operationId: listMessages
+      tags: [Messages]
+      summary: List inbox messages
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "200":
+          description: Paginated inbox
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InboxListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /messages/{msg_id}:
+    get:
+      operationId: getMessage
+      tags: [Messages]
+      summary: Get message details
+      description: Returns the full message body and attachments. Marks the message as read in the background.
+      parameters:
+        - name: msg_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Message details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: deleteMessage
+      tags: [Messages]
+      summary: Delete a message
+      parameters:
+        - name: msg_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Message deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /messages/{msg_id}/reply:
+    post:
+      operationId: replyToMessage
+      tags: [Messages]
+      summary: Reply to a message
+      parameters:
+        - name: msg_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplyRequest"
+      responses:
+        "200":
+          description: Reply sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReplyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Reply not allowed for this message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /messages/{msg_id}/sign:
+    post:
+      operationId: signMessage
+      tags: [Messages]
+      summary: Sign a message with PIN
+      parameters:
+        - name: msg_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignRequest"
+      responses:
+        "200":
+          description: Message signed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: signed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Invalid PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  # ──────────────────────────────────────────────
+  # Payment
+  # ──────────────────────────────────────────────
+  /payment/info:
+    get:
+      operationId: getPaymentInfo
+      tags: [Payment]
+      summary: Get payment information
+      description: Returns upcoming benefit date, supplements, service provider payments, and MIS data.
+      responses:
+        "200":
+          description: Payment information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentInfoResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /payment/schedule:
+    get:
+      operationId: getPaymentSchedule
+      tags: [Payment]
+      summary: Get cheque schedule
+      responses:
+        "200":
+          description: Cheque schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChequeScheduleWindow"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /payment/mis-data:
+    get:
+      operationId: getMISData
+      tags: [Payment]
+      summary: Get MIS payment breakdown
+      responses:
+        "200":
+          description: MIS payment data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MISPaymentData"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /payment/t5-slips:
+    get:
+      operationId: listT5Slips
+      tags: [Payment]
+      summary: List available T5007 tax slips
+      responses:
+        "200":
+          description: T5 slip list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/T5SlipList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /payment/t5-slips/{year}:
+    get:
+      operationId: downloadT5Slip
+      tags: [Payment]
+      summary: Download T5007 slip as PDF
+      parameters:
+        - name: year
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+      responses:
+        "200":
+          description: T5007 PDF document
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: "attachment; filename=\"T5007_2025.pdf\""
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Slip not available or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  # ──────────────────────────────────────────────
+  # Employment Plans
+  # ──────────────────────────────────────────────
+  /employment-plans:
+    get:
+      operationId: listEmploymentPlans
+      tags: [Employment Plans]
+      summary: List employment plans
+      responses:
+        "200":
+          description: Employment plans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EPListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /employment-plans/{ep_id}:
+    get:
+      operationId: getEmploymentPlan
+      tags: [Employment Plans]
+      summary: Get employment plan details
+      parameters:
+        - name: ep_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Employment plan details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EPDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /employment-plans/{ep_id}/sign:
+    post:
+      operationId: signEmploymentPlan
+      tags: [Employment Plans]
+      summary: Sign an employment plan with PIN
+      parameters:
+        - name: ep_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EPSignRequest"
+      responses:
+        "200":
+          description: Employment plan signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EPSignResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Invalid PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  # ──────────────────────────────────────────────
+  # Account
+  # ──────────────────────────────────────────────
+  /account/profile:
+    get:
+      operationId: getProfile
+      tags: [Account]
+      summary: Get account profile
+      responses:
+        "200":
+          description: Account profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountInfoResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /account/contact:
+    patch:
+      operationId: updateContact
+      tags: [Account]
+      summary: Update contact information
+      description: Update email and/or phone numbers. Email requires confirmation field to match.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContactRequest"
+      responses:
+        "200":
+          description: Contact updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /account/case-members:
+    get:
+      operationId: getCaseMembers
+      tags: [Account]
+      summary: Get case members
+      responses:
+        "200":
+          description: Case members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaseMemberListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /account/post-login-sync:
+    post:
+      operationId: postLoginSync
+      tags: [Account]
+      summary: Trigger post-login data synchronization
+      responses:
+        "202":
+          description: Sync accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ──────────────────────────────────────────────
+  # PIN Management
+  # ──────────────────────────────────────────────
+  /auth/pin/validate:
+    post:
+      operationId: validatePin
+      tags: [PIN]
+      summary: Validate a PIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PINValidateRequest"
+      responses:
+        "200":
+          description: PIN is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: valid
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Invalid PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /auth/pin/change:
+    post:
+      operationId: changePin
+      tags: [PIN]
+      summary: Change PIN
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PINChangeRequest"
+      responses:
+        "200":
+          description: PIN changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: changed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Current PIN is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /auth/pin/reset-request:
+    post:
+      operationId: requestPinReset
+      tags: [PIN]
+      summary: Request a PIN reset email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PINResetRequest"
+      responses:
+        "202":
+          description: Reset email sent (if account exists)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /auth/pin/reset-confirm:
+    post:
+      operationId: confirmPinReset
+      tags: [PIN]
+      summary: Confirm PIN reset with token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PINResetConfirmRequest"
+      responses:
+        "200":
+          description: PIN reset successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: reset
+        "410":
+          description: Token invalid or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  # ──────────────────────────────────────────────
+  # Attachments
+  # ──────────────────────────────────────────────
+  /attachments/upload:
+    post:
+      operationId: uploadAttachment
+      tags: [Attachments]
+      summary: Upload a file for virus scanning
+      description: |
+        Upload a file (max 5 MB). Accepted types: PDF, JPEG, PNG, GIF, BMP, TIFF,
+        DOC, DOCX, XLS, XLSX. The file is queued for virus scanning; poll the
+        status endpoint until the scan completes.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: File uploaded and queued for scanning
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: File too large (max 5 MB)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported file type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /attachments/upload/{scan_id}/status:
+    get:
+      operationId: getScanStatus
+      tags: [Attachments]
+      summary: Get virus scan status
+      parameters:
+        - name: scan_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Scan status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Scan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /internal/av-scan-result:
+    post:
+      operationId: receiveAvScanResult
+      tags: [Attachments]
+      summary: Receive antivirus scan result (internal webhook)
+      description: Called by the antivirus scanner service. Authenticated via X-Webhook-Secret header.
+      security:
+        - WebhookSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScanResultWebhookRequest"
+      responses:
+        "200":
+          description: Scan result recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: updated
+        "401":
+          description: Invalid or missing webhook secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Scan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Webhook secret not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /attachments/sr/{sr_id}/submit:
+    post:
+      operationId: submitAttachmentToSR
+      tags: [Attachments]
+      summary: Attach a scanned file to a service request
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachmentSubmitRequest"
+      responses:
+        "201":
+          description: Attachment linked to service request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentSubmitResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: Validation error (e.g. scan not clean)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /attachments/sr/{sr_id}/download:
+    get:
+      operationId: downloadSRAttachment
+      tags: [Attachments]
+      summary: Download an attachment from a service request
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File download
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: "attachment; filename=\"document.pdf\""
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /attachments/messages/{msg_id}/{attachment_id}/download:
+    get:
+      operationId: downloadMessageAttachment
+      tags: [Attachments]
+      summary: Download an attachment from a message
+      parameters:
+        - name: msg_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: attachment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File download
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: "attachment; filename=\"document.pdf\""
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  # ──────────────────────────────────────────────
+  # Admin: Support View
+  # ──────────────────────────────────────────────
+  /admin/support-view/search:
+    post:
+      operationId: supportViewSearch
+      tags: ["Admin: Support View"]
+      summary: Search for clients
+      description: Workers can search by name or SIN to find clients.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Client search results
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/support-view/tombstone:
+    post:
+      operationId: createSupportViewSession
+      tags: ["Admin: Support View"]
+      summary: Create a support view session
+      description: |
+        Creates a 15-minute support view session for a client. Workers cannot
+        create sessions for their own account (self-impersonation check).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TombstoneRequest"
+      responses:
+        "200":
+          description: Support view session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportViewSession"
+        "400":
+          description: Self-impersonation not allowed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    delete:
+      operationId: endSupportViewSession
+      tags: ["Admin: Support View"]
+      summary: End a support view session
+      parameters:
+        - name: X-Support-View-Client
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Client BCeID GUID
+      responses:
+        "204":
+          description: Session ended
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/support-view/client-data/{resource}:
+    get:
+      operationId: getSupportViewClientData
+      tags: ["Admin: Support View"]
+      summary: Get client data in support view
+      description: Retrieves client data for the specified resource while in a support view session.
+      parameters:
+        - name: resource
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Resource type to retrieve (e.g. profile, service-requests, messages)
+      responses:
+        "200":
+          description: Client data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportViewClientData"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ──────────────────────────────────────────────
+  # Admin: AO Registration
+  # ──────────────────────────────────────────────
+  /admin/ao/login:
+    post:
+      operationId: aoLogin
+      tags: ["Admin: AO Registration"]
+      summary: Authenticate AO registration session
+      description: Workers log in with a service request number and SIN to start an administrative override registration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AOLoginRequest"
+      responses:
+        "200":
+          description: AO session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AOSessionToken"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Invalid SR number or SIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/ao/registration/{token}/step/{step}:
+    get:
+      operationId: getAORegistrationStep
+      tags: ["Admin: AO Registration"]
+      summary: Get AO registration step data
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: step
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Step data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AORegistrationStep"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    post:
+      operationId: submitAORegistrationStep
+      tags: ["Admin: AO Registration"]
+      summary: Submit AO registration step data
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: step
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Step submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AORegistrationStep"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/ao/form/{sr_id}/submit:
+    post:
+      operationId: submitAOForm
+      tags: ["Admin: AO Registration"]
+      summary: Submit an AO form
+      parameters:
+        - name: sr_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Form submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/ao/ia-applications:
+    get:
+      operationId: listAOApplications
+      tags: ["Admin: AO Registration"]
+      summary: List AO IA applications
+      responses:
+        "200":
+          description: Applications list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applications:
+                    type: array
+                    items:
+                      type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+# ════════════════════════════════════════════════
+# Components
+# ════════════════════════════════════════════════
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token signed with HS256. Claims: `sub` (user_id), `role` (CLIENT/WORKER/ADMIN),
+        `bceid_guid` (clients), `idir_username` (workers/admins), `exp` (expiry).
+    WebhookSecret:
+      type: apiKey
+      in: header
+      name: X-Webhook-Secret
+      description: HMAC secret for internal AV scanner webhook
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Insufficient permissions for this operation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Upstream service (ICM/Siebel) unavailable — circuit breaker open
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    # ── Common ──────────────────────────────────
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message
+      required:
+        - detail
+
+    ValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                description: Field location path
+              msg:
+                type: string
+                description: Error message
+              type:
+                type: string
+                description: Error type
+            required:
+              - loc
+              - msg
+              - type
+
+    # ── Health ──────────────────────────────────
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        db:
+          type: string
+          enum: [ok, error]
+        redis:
+          type: string
+          enum: [ok, error]
+      required:
+        - status
+        - db
+        - redis
+
+    # ── Enums ───────────────────────────────────
+    RelationshipStatus:
+      type: string
+      enum: [SINGLE, COUPLE]
+
+    SRType:
+      type: string
+      enum:
+        - ASSIST
+        - RREINSTATE
+        - CRISIS_FOOD
+        - CRISIS_SHELTER
+        - CRISIS_CLOTHING
+        - CRISIS_UTILITIES
+        - CRISIS_MED_TRANSPORT
+        - DIRECT_DEPOSIT
+        - DIET
+        - NATAL
+        - MED_TRANSPORT_LOCAL
+        - MED_TRANSPORT_NON_LOCAL
+        - RECONSIDERATION
+        - RECON_SUPPLEMENT
+        - RECON_EXTENSION
+        - STREAMLINED
+        - BUS_PASS
+        - PWD_DESIGNATION
+        - PPMB
+
+    SD81Status:
+      type: string
+      enum: [PRT, SUB, RST, RES, PND]
+      description: |
+        Monthly report status codes:
+        - PRT: Partial (in progress)
+        - SUB: Submitted
+        - RST: Restarted
+        - RES: Resubmitted
+        - PND: Pending Documents
+
+    ICMMessageType:
+      type: string
+      enum:
+        - HR0081
+        - HR0081Restart
+        - HR0081StreamlinedRestart
+        - "HR0081 Pending Documents"
+        - FormSubmission
+        - General
+
+    EPStatus:
+      type: string
+      enum: [Received, Submitted, PendingSignature]
+
+    ScanStatus:
+      type: string
+      enum: [PENDING, SCANNING, CLEAN, INFECTED]
+
+    DynamicFormType:
+      type: string
+      enum: [SR, MONTHLY_REPORT, APPLICATION]
+
+    AccountCreationType:
+      type: string
+      enum: [SELF, WITH_HELPER, POA, PARENT]
+
+    Gender:
+      type: string
+      enum: [M, F, U]
+
+    PhoneType:
+      type: string
+      enum: [HOME, CELL, WORK, MESSAGE]
+
+    BenefitCode:
+      type: integer
+      enum: [32, 41, 42, 73]
+      description: |
+        Benefit codes:
+        - 32: Housing Stability Supplement
+        - 41: Support
+        - 42: Shelter
+        - 73: Hardship/Comforts
+
+    PhoneNumberOperation:
+      type: string
+      enum: [ADD, UPDATE, DELETE]
+
+    # ── Eligibility ─────────────────────────────
+    EligibilityRequest:
+      type: object
+      required:
+        - relationship_status
+        - num_dependants
+        - applicant_pwd
+        - monthly_income
+      properties:
+        relationship_status:
+          $ref: "#/components/schemas/RelationshipStatus"
+        num_dependants:
+          type: integer
+          minimum: 0
+          maximum: 20
+        applicant_pwd:
+          type: boolean
+          description: Applicant has Person with Disabilities designation
+        spouse_pwd:
+          type: boolean
+          default: false
+        monthly_income:
+          type: number
+          format: decimal
+          minimum: 0
+        spouse_monthly_income:
+          type: number
+          format: decimal
+          minimum: 0
+          default: 0
+        primary_vehicle_value:
+          type: number
+          format: decimal
+          minimum: 0
+          default: 0
+        other_vehicle_value:
+          type: number
+          format: decimal
+          minimum: 0
+          default: 0
+        other_asset_value:
+          type: number
+          format: decimal
+          minimum: 0
+          default: 0
+
+    EligibilityResponse:
+      type: object
+      required:
+        - eligible
+        - estimated_amount
+        - client_type
+      properties:
+        eligible:
+          type: boolean
+        estimated_amount:
+          type: number
+          format: decimal
+        ineligibility_reason:
+          type: string
+          nullable: true
+        client_type:
+          type: string
+          enum: [A, B, C, D, E]
+
+    # ── Registration ────────────────────────────
+    StartRegistrationRequest:
+      type: object
+      required:
+        - account_creation_type
+      properties:
+        account_creation_type:
+          $ref: "#/components/schemas/AccountCreationType"
+
+    StartRegistrationResponse:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: Session token for subsequent registration steps
+
+    StepStateResponse:
+      type: object
+      required:
+        - token
+        - step_reached
+        - account_creation_type
+      properties:
+        token:
+          type: string
+        step_reached:
+          type: integer
+        account_creation_type:
+          $ref: "#/components/schemas/AccountCreationType"
+
+    OpenCaseIdentificationRequest:
+      type: object
+      properties:
+        last_assistance_payment_amount:
+          type: string
+          nullable: true
+        has_drivers_licence:
+          type: boolean
+          default: false
+        drivers_licence_expiry:
+          type: string
+          format: date
+          nullable: true
+        has_previous_address:
+          type: boolean
+          default: false
+        previous_address:
+          type: string
+          nullable: true
+        paying_service_providers:
+          type: boolean
+          default: false
+        service_providers_description:
+          type: string
+          nullable: true
+        payment_method:
+          type: string
+          nullable: true
+
+    SpouseInfoRequest:
+      type: object
+      required:
+        - first_name
+        - last_name
+        - sin
+        - date_of_birth
+        - gender
+      properties:
+        first_name:
+          type: string
+        middle_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+        sin:
+          type: string
+          description: Social Insurance Number (Luhn validated)
+        phn:
+          type: string
+          nullable: true
+          description: Personal Health Number (MOD 11 validated)
+        date_of_birth:
+          type: string
+          format: date
+          description: Must be at least 16 years old
+        gender:
+          $ref: "#/components/schemas/Gender"
+
+    PersonalInfoRequest:
+      type: object
+      required:
+        - first_name
+        - last_name
+        - email
+        - email_confirm
+        - sin
+        - date_of_birth
+        - gender
+        - phone_number
+        - phone_type
+      properties:
+        first_name:
+          type: string
+        middle_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        email_confirm:
+          type: string
+          format: email
+          description: Must match email field
+        sin:
+          type: string
+          description: Social Insurance Number (Luhn validated)
+        phn:
+          type: string
+          nullable: true
+          description: Personal Health Number (MOD 11 validated)
+        date_of_birth:
+          type: string
+          format: date
+          description: Must be at least 16 years old
+        gender:
+          $ref: "#/components/schemas/Gender"
+        phone_number:
+          type: string
+        phone_type:
+          $ref: "#/components/schemas/PhoneType"
+        has_open_case:
+          type: boolean
+          default: false
+        open_case_identification:
+          $ref: "#/components/schemas/OpenCaseIdentificationRequest"
+        spouse:
+          $ref: "#/components/schemas/SpouseInfoRequest"
+
+    PersonalInfoResponse:
+      type: object
+      required:
+        - next_step
+      properties:
+        next_step:
+          type: integer
+          example: 3
+
+    PinRequest:
+      type: object
+      required:
+        - pin
+        - pin_confirm
+      properties:
+        pin:
+          type: string
+          pattern: "^\\d{4}$"
+          description: 4-digit PIN (0000-9999)
+        pin_confirm:
+          type: string
+          pattern: "^\\d{4}$"
+          description: Must match pin field
+
+    PinResponse:
+      type: object
+      required:
+        - next_step
+      properties:
+        next_step:
+          type: integer
+          example: 5
+
+    # ── Service Requests ────────────────────────
+    SRSummary:
+      type: object
+      required:
+        - sr_id
+        - sr_type
+        - sr_number
+        - status
+        - client_name
+        - created_at
+      properties:
+        sr_id:
+          type: string
+        sr_type:
+          $ref: "#/components/schemas/SRType"
+        sr_number:
+          type: string
+        status:
+          type: string
+        client_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    SRListResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SRSummary"
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+    SRTypeMetadata:
+      type: object
+      required:
+        - sr_type
+        - display_name
+        - requires_pin
+        - has_attachments
+        - max_active
+      properties:
+        sr_type:
+          $ref: "#/components/schemas/SRType"
+        display_name:
+          type: string
+        requires_pin:
+          type: boolean
+        has_attachments:
+          type: boolean
+        max_active:
+          type: integer
+
+    SRCreateRequest:
+      type: object
+      required:
+        - sr_type
+      properties:
+        sr_type:
+          $ref: "#/components/schemas/SRType"
+
+    SRDraftResponse:
+      type: object
+      required:
+        - sr_id
+        - sr_type
+        - updated_at
+      properties:
+        sr_id:
+          type: string
+        sr_type:
+          $ref: "#/components/schemas/SRType"
+        draft_json:
+          type: object
+          nullable: true
+          additionalProperties: true
+        updated_at:
+          type: string
+          format: date-time
+
+    DynamicFormField:
+      type: object
+      required:
+        - field_id
+        - label
+        - field_type
+      properties:
+        field_id:
+          type: string
+        label:
+          type: string
+        field_type:
+          type: string
+          description: "One of: text, number, date, select, checkbox, textarea"
+        required:
+          type: boolean
+          default: false
+        options:
+          type: array
+          items:
+            type: string
+          nullable: true
+        validation:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    DynamicFormPage:
+      type: object
+      required:
+        - page_index
+        - title
+        - fields
+      properties:
+        page_index:
+          type: integer
+        title:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/DynamicFormField"
+
+    DynamicFormSchema:
+      type: object
+      required:
+        - form_type
+        - pages
+        - total_pages
+      properties:
+        form_type:
+          $ref: "#/components/schemas/DynamicFormType"
+        sr_type:
+          $ref: "#/components/schemas/SRType"
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DynamicFormPage"
+        total_pages:
+          type: integer
+
+    SRFormUpdateRequest:
+      type: object
+      required:
+        - answers
+        - page_index
+      properties:
+        answers:
+          type: object
+          additionalProperties: true
+        page_index:
+          type: integer
+
+    SRSubmitRequest:
+      type: object
+      required:
+        - pin
+        - declaration_accepted
+      properties:
+        pin:
+          type: string
+          description: 4-digit PIN
+        spouse_pin:
+          type: string
+          nullable: true
+        declaration_accepted:
+          type: boolean
+          description: Must be true
+
+    SRSubmitResponse:
+      type: object
+      required:
+        - sr_id
+        - sr_number
+        - submitted_at
+      properties:
+        sr_id:
+          type: string
+        sr_number:
+          type: string
+        submitted_at:
+          type: string
+          format: date-time
+
+    SRDetailResponse:
+      type: object
+      required:
+        - sr_id
+        - sr_type
+        - sr_number
+        - status
+        - client_name
+        - created_at
+      properties:
+        sr_id:
+          type: string
+        sr_type:
+          $ref: "#/components/schemas/SRType"
+        sr_number:
+          type: string
+        status:
+          type: string
+        client_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        answers:
+          type: object
+          nullable: true
+          additionalProperties: true
+        attachments:
+          type: array
+          items:
+            type: string
+          default: []
+
+    SRWithdrawRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          nullable: true
+
+    # ── Monthly Reports ─────────────────────────
+    ChequeScheduleWindow:
+      type: object
+      required:
+        - benefit_month
+        - income_date
+        - cheque_issue_date
+        - period_close_date
+      properties:
+        benefit_month:
+          type: string
+          format: date
+        income_date:
+          type: string
+          format: date
+        cheque_issue_date:
+          type: string
+          format: date
+        period_close_date:
+          type: string
+          format: date-time
+          description: Friday 4 PM UTC
+
+    SD81Summary:
+      type: object
+      required:
+        - sd81_id
+        - benefit_month
+        - status
+      properties:
+        sd81_id:
+          type: string
+        benefit_month:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/SD81Status"
+        submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SD81ListResponse:
+      type: object
+      required:
+        - reports
+        - total
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/SD81Summary"
+        total:
+          type: integer
+
+    SD81SubmitRequest:
+      type: object
+      required:
+        - pin
+      properties:
+        pin:
+          type: string
+        spouse_pin:
+          type: string
+          nullable: true
+
+    SD81SubmitResponse:
+      type: object
+      required:
+        - sd81_id
+        - status
+        - submitted_at
+      properties:
+        sd81_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/SD81Status"
+        submitted_at:
+          type: string
+          format: date-time
+
+    # ── Notifications & Messages ────────────────
+    BannerNotification:
+      type: object
+      required:
+        - notification_id
+        - body
+        - start_date
+        - end_date
+      properties:
+        notification_id:
+          type: string
+        body:
+          type: string
+          maxLength: 150
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+
+    BannerListResponse:
+      type: object
+      required:
+        - banners
+      properties:
+        banners:
+          type: array
+          items:
+            $ref: "#/components/schemas/BannerNotification"
+
+    MessageSummary:
+      type: object
+      required:
+        - message_id
+        - subject
+        - sent_date
+        - is_read
+        - can_reply
+        - message_type
+      properties:
+        message_id:
+          type: string
+        subject:
+          type: string
+        sent_date:
+          type: string
+          format: date-time
+        is_read:
+          type: boolean
+        can_reply:
+          type: boolean
+        message_type:
+          $ref: "#/components/schemas/ICMMessageType"
+
+    MessageDetail:
+      type: object
+      required:
+        - message_id
+        - subject
+        - sent_date
+        - is_read
+        - can_reply
+        - message_type
+        - body
+        - attachments
+      properties:
+        message_id:
+          type: string
+        subject:
+          type: string
+        sent_date:
+          type: string
+          format: date-time
+        is_read:
+          type: boolean
+        can_reply:
+          type: boolean
+        message_type:
+          $ref: "#/components/schemas/ICMMessageType"
+        body:
+          type: string
+        attachments:
+          type: array
+          items:
+            type: string
+
+    InboxListResponse:
+      type: object
+      required:
+        - messages
+        - total
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageSummary"
+        total:
+          type: integer
+
+    ReplyRequest:
+      type: object
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          maxLength: 4000
+        attachment_ids:
+          type: array
+          items:
+            type: string
+          default: []
+
+    ReplyResponse:
+      type: object
+      required:
+        - status
+        - sent_at
+      properties:
+        status:
+          type: string
+        sent_at:
+          type: string
+          format: date-time
+
+    SignRequest:
+      type: object
+      required:
+        - pin
+      properties:
+        pin:
+          type: string
+          minLength: 1
+
+    # ── Payment ─────────────────────────────────
+    AllowanceItem:
+      type: object
+      required:
+        - code
+        - amount
+        - description
+      properties:
+        code:
+          $ref: "#/components/schemas/BenefitCode"
+        amount:
+          type: number
+          format: decimal
+        description:
+          type: string
+
+    DeductionItem:
+      type: object
+      required:
+        - code
+        - amount
+        - description
+      properties:
+        code:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        description:
+          type: string
+
+    SupplementItem:
+      type: object
+      required:
+        - code
+        - amount
+        - effective_date
+      properties:
+        code:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        effective_date:
+          type: string
+          format: date
+
+    ServiceProviderPayment:
+      type: object
+      required:
+        - provider_name
+        - amount
+        - payment_date
+      properties:
+        provider_name:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        payment_date:
+          type: string
+          format: date
+
+    MISPaymentData:
+      type: object
+      required:
+        - mis_person_id
+        - key_player_name
+        - payment_method
+        - payment_distribution
+        - allowances
+        - deductions
+      properties:
+        mis_person_id:
+          type: string
+        key_player_name:
+          type: string
+        spouse_name:
+          type: string
+          nullable: true
+        payment_method:
+          type: string
+        payment_distribution:
+          type: string
+        allowances:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllowanceItem"
+        deductions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeductionItem"
+        aee_balance:
+          type: number
+          format: decimal
+          nullable: true
+
+    PaymentInfoResponse:
+      type: object
+      required:
+        - upcoming_benefit_date
+        - assistance_type
+        - supplements
+        - service_provider_payments
+        - mis_data
+      properties:
+        upcoming_benefit_date:
+          type: string
+          format: date
+        assistance_type:
+          type: string
+        supplements:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupplementItem"
+        service_provider_payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceProviderPayment"
+        mis_data:
+          $ref: "#/components/schemas/MISPaymentData"
+
+    T5Slip:
+      type: object
+      required:
+        - tax_year
+        - box_10_amount
+        - box_11_amount
+        - available
+      properties:
+        tax_year:
+          type: integer
+        box_10_amount:
+          type: number
+          format: decimal
+        box_11_amount:
+          type: number
+          format: decimal
+        available:
+          type: boolean
+
+    T5SlipList:
+      type: object
+      required:
+        - slips
+      properties:
+        slips:
+          type: array
+          items:
+            $ref: "#/components/schemas/T5Slip"
+
+    # ── Employment Plans ────────────────────────
+    EmploymentPlan:
+      type: object
+      required:
+        - ep_id
+        - icm_attachment_id
+        - status
+        - plan_date
+        - message_deleted
+      properties:
+        ep_id:
+          type: integer
+        message_id:
+          type: integer
+          nullable: true
+        icm_attachment_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/EPStatus"
+        plan_date:
+          type: string
+          format: date
+        message_deleted:
+          type: boolean
+
+    EPListResponse:
+      type: object
+      required:
+        - plans
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmploymentPlan"
+
+    EPDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/EmploymentPlan"
+
+    EPSignRequest:
+      type: object
+      required:
+        - pin
+        - message_id
+      properties:
+        pin:
+          type: string
+          minLength: 1
+        message_id:
+          type: integer
+
+    EPSignResponse:
+      type: object
+      required:
+        - ep_id
+        - signed_at
+      properties:
+        ep_id:
+          type: integer
+        signed_at:
+          type: string
+          format: date-time
+
+    # ── Account ─────────────────────────────────
+    AccountInfoResponse:
+      type: object
+      required:
+        - user_id
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone_numbers:
+          type: array
+          items:
+            type: object
+          default: []
+        case_number:
+          type: string
+          nullable: true
+        case_status:
+          type: string
+          nullable: true
+
+    PhoneNumberUpdate:
+      type: object
+      required:
+        - operation
+      properties:
+        phone_id:
+          type: integer
+          nullable: true
+        phone_number:
+          type: string
+          default: ""
+        phone_type:
+          type: string
+          default: ""
+        operation:
+          $ref: "#/components/schemas/PhoneNumberOperation"
+
+    UpdateContactRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          nullable: true
+        email_confirm:
+          type: string
+          nullable: true
+          description: Must match email if both provided
+        phones:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhoneNumberUpdate"
+          default: []
+
+    CaseMember:
+      type: object
+      required:
+        - name
+        - relationship
+      properties:
+        name:
+          type: string
+        relationship:
+          type: string
+
+    CaseMemberListResponse:
+      type: object
+      required:
+        - members
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/CaseMember"
+
+    # ── PIN ─────────────────────────────────────
+    PINValidateRequest:
+      type: object
+      required:
+        - pin
+      properties:
+        pin:
+          type: string
+          minLength: 4
+          maxLength: 4
+          pattern: "^\\d{4}$"
+          description: 4-digit numeric PIN
+
+    PINChangeRequest:
+      type: object
+      required:
+        - current_pin
+        - new_pin
+      properties:
+        current_pin:
+          type: string
+          minLength: 4
+          maxLength: 4
+          pattern: "^\\d{4}$"
+        new_pin:
+          type: string
+          minLength: 4
+          maxLength: 4
+          pattern: "^\\d{4}$"
+
+    PINResetRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+
+    PINResetConfirmRequest:
+      type: object
+      required:
+        - token
+        - new_pin
+      properties:
+        token:
+          type: string
+        new_pin:
+          type: string
+          minLength: 4
+          maxLength: 4
+          pattern: "^\\d{4}$"
+
+    # ── Attachments ─────────────────────────────
+    UploadResponse:
+      type: object
+      required:
+        - scan_id
+        - filename
+        - uploaded_at
+      properties:
+        scan_id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        uploaded_at:
+          type: string
+          format: date-time
+
+    ScanStatusResponse:
+      type: object
+      required:
+        - scan_id
+        - status
+      properties:
+        scan_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/ScanStatus"
+        scanned_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    AttachmentSubmitRequest:
+      type: object
+      required:
+        - scan_id
+        - filename
+      properties:
+        scan_id:
+          type: string
+        filename:
+          type: string
+
+    AttachmentSubmitResponse:
+      type: object
+      required:
+        - attachment_id
+        - sr_id
+        - filename
+      properties:
+        attachment_id:
+          type: string
+        sr_id:
+          type: string
+        filename:
+          type: string
+
+    ScanResultWebhookRequest:
+      type: object
+      required:
+        - scan_id
+        - status
+        - scanned_at
+      properties:
+        scan_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/ScanStatus"
+        scanned_at:
+          type: string
+          format: date-time
+
+    # ── Admin: Support View ─────────────────────
+    SearchRequest:
+      type: object
+      properties:
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+          nullable: true
+        sin:
+          type: string
+          nullable: true
+        page:
+          type: integer
+          default: 1
+
+    TombstoneRequest:
+      type: object
+      required:
+        - client_bceid_guid
+      properties:
+        client_bceid_guid:
+          type: string
+
+    SupportViewSession:
+      type: object
+      required:
+        - session_token
+        - client_bceid_guid
+        - expires_at
+      properties:
+        session_token:
+          type: string
+          description: "Format: {worker_idir}:{client_bceid_guid}"
+        client_bceid_guid:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    SupportViewClientData:
+      type: object
+      required:
+        - resource
+        - client_bceid_guid
+        - client_portal_id
+        - data
+      properties:
+        resource:
+          type: string
+        client_bceid_guid:
+          type: string
+        client_portal_id:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+
+    # ── Admin: AO Registration ──────────────────
+    AOLoginRequest:
+      type: object
+      required:
+        - sr_number
+        - sin
+      properties:
+        sr_number:
+          type: string
+        sin:
+          type: string
+
+    AOSessionToken:
+      type: object
+      required:
+        - session_token
+        - expires_at
+      properties:
+        session_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    AORegistrationStep:
+      type: object
+      required:
+        - step
+        - data
+      properties:
+        step:
+          type: integer
+        data:
+          type: object
+          additionalProperties: true
