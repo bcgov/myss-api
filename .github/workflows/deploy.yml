@@ -1,0 +1,60 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    name: Deploy to OpenShift
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+    steps:
+      - name: Install oc CLI
+        uses: redhat-actions/openshift-tools-installer@v1
+        with:
+          oc: latest
+
+      - name: Log in to OpenShift
+        run: |
+          oc login ${{ secrets.OPENSHIFT_SERVER }} \
+            --token=${{ secrets.OPENSHIFT_TOKEN }} \
+            --insecure-skip-tls-verify=false
+
+      - name: Update image tag and restart
+        run: |
+          oc set image deployment/myss-api \
+            myss-api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -n ${{ secrets.OPENSHIFT_NAMESPACE }}
+          oc rollout status deployment/myss-api -n ${{ secrets.OPENSHIFT_NAMESPACE }} --timeout=5m
