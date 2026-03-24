@@ -1,40 +1,25 @@
 # Local Development Setup
 
-Get a working development environment from zero. The setup takes about 15 minutes on a clean machine.
+Get a working myss-api development environment from zero.
 
 ## Prerequisites
 
 | Tool | Required version | Notes |
 |---|---|---|
-| Python | 3.12 | Exact version — `python3.12 --version` |
-| Node.js | 20 LTS | `node --version` |
+| Python | 3.12+ | `python3 --version` |
 | Docker | any recent | For PostgreSQL and Redis |
-| Make | 3.8+ | Ships with macOS Xcode tools; `make --version` |
 
 ## Clone and Install
 
 ```bash
-git clone <repo-url> myss
-cd myss
-```
-
-### Backend (FastAPI)
-
-```bash
+git clone <repo-url> myss-api
 cd myss-api
-python3.12 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
 The `[dev]` extra installs pytest, respx, fakeredis, ruff, and mypy in addition to the runtime dependencies listed in `pyproject.toml`.
-
-### Frontend (SvelteKit)
-
-```bash
-cd myss-web
-npm install
-```
 
 ## Start Infrastructure
 
@@ -65,7 +50,7 @@ docker ps | grep -E "myss-postgres|myss-redis"
 
 ## Environment Variables
 
-Create `myss-api/.env`:
+Create a `.env` file in the project root:
 
 ```dotenv
 # Database
@@ -81,70 +66,45 @@ ENVIRONMENT=local
 # CORS (comma-separated; SvelteKit dev server runs on 5173)
 CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 
-# Siebel / ICM (set to real values or leave blank to stub)
-ICM_BASE_URL=https://icm.example.gov.bc.ca
-ICM_CLIENT_ID=myss-client
+# AV webhook (shared secret for antivirus scan result callback)
+AV_WEBHOOK_SECRET=local-dev-av-secret
+
+# Siebel / ICM (leave blank for local dev — app starts without them in local mode)
+ICM_BASE_URL=
+ICM_CLIENT_ID=
 ICM_CLIENT_SECRET=
-ICM_TOKEN_URL=https://icm.example.gov.bc.ca/oauth/token
+ICM_TOKEN_URL=
 ```
 
-Create `myss-web/.env`:
-
-```dotenv
-# Points to the FastAPI backend
-PUBLIC_API_URL=http://localhost:8000
-
-# Auth.js secret (any string for local dev)
-AUTH_SECRET=local-dev-secret
-
-# Keycloak (set to real values for OIDC-backed login)
-AUTH_KEYCLOAK_ID=myss-web
-AUTH_KEYCLOAK_SECRET=
-AUTH_KEYCLOAK_ISSUER=https://keycloak.example.gov.bc.ca/realms/myss
-```
-
-`ENVIRONMENT=local` disables the startup check that enforces a secure `JWT_SECRET`, so `change-me-for-local-dev-only` is accepted in local development only.
+`ENVIRONMENT=local` disables startup validation that enforces secure secrets and requires ICM connection details. In any other environment, `JWT_SECRET` must be a strong secret and all `ICM_*` variables must be set. See `app/config.py` for the full list of validated settings.
 
 ## SQLite as a Quick Alternative
 
-If you do not want to run Docker, the Alembic default URL in `myss-api/alembic.ini` is:
+If you do not want to run Docker, set `DATABASE_URL` to use SQLite:
 
-```
-sqlalchemy.url = sqlite+aiosqlite:///./test.db
+```dotenv
+DATABASE_URL=sqlite+aiosqlite:///./dev.db
 ```
 
-Set `DATABASE_URL=sqlite+aiosqlite:///./test.db` in your `.env` and skip the PostgreSQL container. SQLite is adequate for exploring the code and running tests, but some PostgreSQL-specific constraints will not be enforced.
+Skip the PostgreSQL container. SQLite is adequate for exploring the code and running tests, but some PostgreSQL-specific constraints (JSON column behaviour, `NOW()` in raw SQL) will not be enforced.
+
+You will still need Redis for admin session management and caching. If you want to skip Redis as well, the app will start but admin routes and caching will fail at runtime.
 
 ## Run Alembic Migrations
 
-From the repo root:
-
 ```bash
-make migrate
+source .venv/bin/activate
+alembic upgrade head
 ```
 
-This runs `alembic upgrade head` inside `myss-api/` using the `.venv` Python. On first run it creates all tables. Re-running is safe — Alembic tracks applied revisions.
+On first run this creates all tables. Re-running is safe — Alembic tracks applied revisions.
 
-## Start Both Services
-
-Open two terminal windows.
-
-**Terminal 1 — FastAPI:**
+## Start the API Server
 
 ```bash
-cd myss-api
 source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
-
-**Terminal 2 — SvelteKit:**
-
-```bash
-cd myss-web
-npm run dev
-```
-
-SvelteKit's dev server starts on port 5173 (Vite default). The API runs on port 8000.
 
 ## Verify
 
@@ -153,14 +113,32 @@ SvelteKit's dev server starts on port 5173 (Vite default). The API runs on port 
 | API health | http://localhost:8000/health |
 | Interactive API docs (Swagger UI) | http://localhost:8000/docs |
 | OpenAPI JSON schema | http://localhost:8000/openapi.json |
-| SvelteKit home page | http://localhost:5173 |
 
 A `200 OK` from `/health` confirms the API started and connected to its dependencies. The Swagger UI at `/docs` lets you call any endpoint directly with a Bearer token — useful for exploring domain APIs without a frontend.
+
+## Running Tests
+
+```bash
+# All tests
+python -m pytest -v
+
+# Specific test file
+python -m pytest tests/test_auth.py -v
+
+# With coverage
+python -m pytest --cov=app
+
+# Lint and type check
+ruff check .
+mypy app/
+```
+
+Tests use an in-memory SQLite database and fakeredis by default — no Docker containers needed to run the test suite.
 
 ## Common Issues
 
 **`ModuleNotFoundError: No module named 'app'`**
-You are not inside the virtual environment or the package is not installed. Run `source .venv/bin/activate && pip install -e ".[dev]"` from `myss-api/`.
+You are not inside the virtual environment or the package is not installed. Run `source .venv/bin/activate && pip install -e ".[dev]"`.
 
 **`RuntimeError: JWT_SECRET must be set to a secure value`**
 `ENVIRONMENT` is not set to `local` or `test`. Make sure your `.env` has `ENVIRONMENT=local`.
@@ -169,10 +147,7 @@ You are not inside the virtual environment or the package is not installed. Run 
 Docker containers are not running. Check `docker ps` and restart with the commands in the [Start Infrastructure](#start-infrastructure) section.
 
 **`alembic: command not found`**
-Use `make migrate` (which calls `.venv/bin/alembic`) rather than the system `alembic`.
+Make sure you are in the virtual environment (`source .venv/bin/activate`). Alembic is installed as part of the `[dev]` extras.
 
-**SvelteKit shows `CORS` errors in the browser console**
-The `CORS_ALLOWED_ORIGINS` in `myss-api/.env` must include exactly the origin SvelteKit is serving from (default `http://localhost:5173`). Note: CORS applies to browser-originated requests. SvelteKit server-side fetches in `+page.server.ts` are not subject to CORS.
-
-**Vitest or Playwright not found**
-Run `npm install` inside `myss-web/`. Do not run `npm install` from the repo root — the web package is in its own directory.
+**`KeyError: 'ICM_BASE_URL'` on first API request**
+The Siebel client factories read `ICM_*` from the environment at first use. In local mode, set them to empty strings in `.env` — the app will start, but routes that call Siebel will fail with connection errors. This is expected for local development without VPN access to the ICM environment.
