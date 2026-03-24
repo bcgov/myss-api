@@ -29,6 +29,14 @@ python scripts/seed_db.py --reset  # truncate seed data, then re-insert
 - Idempotent: checks for existing records by known stable identifiers (e.g. `bceid_guid`) before inserting.
 - `--reset` flag truncates all seeded tables (respecting FK order) before re-inserting, so developers can get back to a clean state.
 - Prints a summary with user IDs, BCeID GUIDs, and pre-signed JWT tokens (24h expiry) for each persona.
+- Uses the existing `PyJWT` library (already in `pyproject.toml`) to sign JWT tokens — no new dependencies.
+
+### Implementation notes
+
+- `sr_drafts.user_id` is a plain `str` column (not a UUID FK). The seeder must store `str(user.id)` when creating SR draft rows.
+- `registrationsession.invite_token` is unique and non-nullable. Generate a UUID for each session. Set `expires_at` to 24h from seed time for in-progress sessions; any past time for completed ones. Set `completed_at` to a past timestamp for completed sessions.
+- `aoregistrationsession.applicant_sin_hash` is a bcrypt hash. Use a well-known test SIN (`000-000-000`) and bcrypt-hash it so developers know the input value.
+- `attachmentrecord.profile_id` is a required FK to `profile.id`. The INFECTED edge-case attachment is assigned to Carol (exercises her otherwise-sparse data).
 
 ### Seed data inventory
 
@@ -40,7 +48,7 @@ python scripts/seed_db.py --reset  # truncate seed data, then re-insert
 | `pinresettoken` | 2 | One active (expires in 1 hour), one expired |
 | `aoregistrationsession` | 1 | Active worker override session |
 | `sr_drafts` | 3 | ASSIST (Alice, partial form), CRISIS_FOOD (Alice, empty), DIRECT_DEPOSIT (Bob, partial) |
-| `attachmentrecord` + `scanjob` | 3 | CLEAN (Alice), PENDING (Bob), INFECTED (test edge case) |
+| `attachmentrecord` + `scanjob` | 3 | CLEAN (Alice), PENDING (Bob), INFECTED (Carol) |
 | `plansignaturesession` | 2 | One unsigned (Bob, expires in 2h), one signed (Bob, signed yesterday) |
 | `disclaimeracknowledgement` | 1 | Anonymous session |
 | `workerauditrecord` | 5 | Mix of GET/POST across account, SR, admin domains |
@@ -106,6 +114,8 @@ Each mock client:
 - Overrides `__init__` to accept no arguments and skip the parent's HTTP/OAuth setup entirely
 - Overrides every async method to return data from `data.py` — no HTTP calls
 - Uses the method arguments (e.g. `profile_id`, `case_number`) to select the right persona's data where appropriate
+- **Every method on the real client must be overridden.** Any method not yet given specific canned data should return a generic success dict (`{"status": "ok"}`) and log a warning: `mock_not_implemented method=X`. This prevents accidental real HTTP calls and makes gaps visible.
+- Methods that return `bytes` (e.g. `get_report_pdf`, `get_t5007_pdf`) return a minimal valid PDF placeholder: `b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n"` — enough to not crash PDF parsers but clearly fake.
 
 ### `data.py` — Canned response data
 
@@ -113,7 +123,9 @@ Organized by domain, keyed by persona identifiers so mock clients can look up th
 
 **Account responses:**
 - `get_profile` → name, email, phone numbers, case number, case status
+- `update_contact` → success response with updated fields echoed back
 - `get_case_members` → dependants and spouse (Alice: 1 child; Bob: spouse + 2 children)
+- `sync_profile` → success response
 - `validate_pin` → success response
 - `change_pin` / `request_pin_reset` / `confirm_pin_reset` → success responses
 
@@ -122,30 +134,41 @@ Organized by domain, keyed by persona identifiers so mock clients can look up th
 - `get_cheque_schedule` → 3 upcoming months with benefit_month, income_date, cheque_issue_date, period_close_date
 - `get_t5007_slips` → slips for 2024 and 2025 with box_10/box_11 amounts
 - `get_mis_data` → allowances (support=$760, shelter=$500, HSS=$50), deductions, AEE balance
+- `get_t5_history_years` → list of available tax years [2024, 2025]
+- `get_t5007_pdf` → minimal valid PDF bytes placeholder
 
 **Notification responses:**
 - `get_banners` → 2 banners (system maintenance notice, program update)
 - `get_messages` → 5 messages: SD81 reminder (unread), form submission confirmation, general notice, SD81 restart notice (unread), older read message
 - `get_message_detail` → full body text for each message
-- `mark_read` / `send_message` → success responses
+- `mark_read` / `send_message` / `delete_message` → success responses
+- `sign_and_send` → success with signed_at timestamp
 
 **Service Request responses:**
 - `get_sr_list` → 3 SRs: ASSIST (Open), CRISIS_FOOD (Submitted), DIRECT_DEPOSIT (Cancelled)
 - `get_sr_detail` → full detail with answers and attachment references
 - `get_eligible_types` → filtered list based on case status
 - `create_sr` → new SR with generated ID
+- `cancel_sr` → success response with cancelled status
+- `get_return_action` → return action metadata for the given SR type
 - `finalize_sr_form` → success response
 
 **Monthly Report responses:**
 - `get_report_period` → current reporting window with dates
 - `list_reports` → 3 reports: current month PARTIAL, last month SUBMITTED, 2 months ago RESUBMITTED
 - `get_ia_questionnaire` → questionnaire form fields
+- `start_report` → new report with generated SD81 ID
 - `submit_monthly_report` → success with status=SUBMITTED
+- `finalize` → success response
+- `restart_report` → success with status=RESTARTED
+- `get_summary` → summary of a finalized report
+- `get_report_pdf` → minimal valid PDF bytes placeholder
 
 **Employment Plan responses:**
 - `get_ep_list` → 2 plans: one PENDING_SIGNATURE, one SUBMITTED
 - `get_ep_detail` → full plan detail
 - `sign_ep` / `send_to_icm` → success with signed_at timestamp
+- `mark_form_submitted` → success response
 
 **Registration responses:**
 - `register_new_applicant` → success with SR number
@@ -162,22 +185,38 @@ Organized by domain, keyed by persona identifiers so mock clients can look up th
 - `get_tombstone` → full contact/address details
 - `get_profile` → profile with case info
 - `link_profile` → success
+- `validate_pin` → success response
+- `update_tombstone` → success with updated fields echoed back
 - `has_newer_profile` → false
 - `get_banners` → delegates to notification banners
 
 **Attachment responses:**
 - `upload_attachment` → success with attachment ID
 - `get_attachment` → metadata for the attachment
+- `delete_sr_attachment` → success response
 - `get_message_attachment` / `get_sr_attachment` → metadata responses
 
 ### Injection mechanism
 
 **Modified file:** `app/services/icm/deps.py`
 
+Add `from app.config import get_settings` import. Refactor `_icm_kwargs()` to read from `get_settings()` instead of `os.environ` directly — this is consistent with the rest of the app and prevents `KeyError` if env vars are truly unset rather than empty.
+
 Add a mapping from real client class to mock class:
 
 ```python
+from app.config import get_settings
+
 _MOCK_MAP: dict[type, type] = {}  # populated lazily
+
+def _icm_kwargs() -> dict:
+    settings = get_settings()
+    return {
+        "base_url": settings.icm_base_url,
+        "client_id": settings.icm_client_id,
+        "client_secret": settings.icm_client_secret,
+        "token_url": settings.icm_token_url,
+    }
 
 def _use_mock() -> bool:
     settings = get_settings()
@@ -188,6 +227,7 @@ def get_siebel_client(cls: Type[T]) -> T:
         if not _MOCK_MAP:
             from app.services.icm.mock import MOCK_CLIENT_MAP
             _MOCK_MAP.update(MOCK_CLIENT_MAP)
+            logger.info("mock_icm_enabled", msg="Using mock ICM clients — Siebel calls will return canned data")
         mock_cls = _MOCK_MAP.get(cls)
         if mock_cls:
             if cls not in _clients:
@@ -199,7 +239,7 @@ def get_siebel_client(cls: Type[T]) -> T:
     return _clients[cls]
 ```
 
-A structlog message logs mock mode activation on first use.
+**Note:** Mock mode is determined by `get_settings()` which is `@lru_cache`-decorated — the decision is fixed at first call and cannot be toggled at runtime. This is intentional: mock mode is a development environment configuration, not a runtime switch.
 
 ### What does NOT change
 
