@@ -135,7 +135,7 @@ Organized by domain, keyed by persona identifiers so mock clients can look up th
 - `get_t5007_slips` → slips for 2024 and 2025 with box_10/box_11 amounts
 - `get_mis_data` → allowances (support=$760, shelter=$500, HSS=$50), deductions, AEE balance
 - `get_t5_history_years` → list of available tax years [2024, 2025]
-- `get_t5007_pdf` → minimal valid PDF bytes placeholder
+- `get_t5007_pdf` → dict with base64-encoded minimal PDF placeholder (this method uses `_get` and returns `dict`, not raw bytes)
 
 **Notification responses:**
 - `get_banners` → 2 banners (system maintenance notice, program update)
@@ -241,9 +241,18 @@ def get_siebel_client(cls: Type[T]) -> T:
 
 **Note:** Mock mode is determined by `get_settings()` which is `@lru_cache`-decorated — the decision is fixed at first call and cannot be toggled at runtime. This is intentional: mock mode is a development environment configuration, not a runtime switch.
 
+**`clear_clients()` update:** Also clear `_MOCK_MAP` so test fixtures get a clean slate:
+
+```python
+def clear_clients() -> None:
+    _clients.clear()
+    _MOCK_MAP.clear()
+```
+
 ### What does NOT change
 
 - No router or service files are modified — they keep calling `get_siebel_client(SiebelPaymentClient)` etc.
+- The 10 backward-compatible alias functions (`get_siebel_profile_client`, etc.) delegate to `get_siebel_client` and require no changes — mock injection is transparent.
 - No new dependencies added to `pyproject.toml`
 - No changes to test infrastructure — tests continue using respx/mocks as before
 
