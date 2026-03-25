@@ -440,8 +440,16 @@ MESSAGES = {
                 "can_reply": False,
                 "message_type": "GENERAL",
             },
+            {
+                "message_id": "MSG-B003",
+                "subject": "Previous Employment Plan Signed",
+                "sent_date": "2025-09-16T10:00:00Z",
+                "is_read": True,
+                "can_reply": False,
+                "message_type": "GENERAL",
+            },
         ],
-        "total": 2,
+        "total": 3,
     },
     CAROL_PROFILE_ID: {"messages": [], "total": 0},
 }
@@ -465,7 +473,7 @@ MESSAGE_DETAILS = {
         "can_reply": False,
         "message_type": "FORM_SUBMISSION",
         "body": "We have received your service request SR-100101. You will be notified when it has been reviewed.",
-        "attachments": [],
+        "attachments": [{"attachment_id": "ATT-001", "filename": "T4_2025_Pacific_Coast_Catering.pdf"}],
     },
     "MSG-A003": {
         "message_id": "MSG-A003",
@@ -496,6 +504,16 @@ MESSAGE_DETAILS = {
         "message_type": "GENERAL",
         "body": "Your employment plan EP-B001 is ready for your electronic signature. Please review and sign at your earliest convenience.",
         "attachments": [{"attachment_id": "ATT-EP-001", "filename": "employment_plan_2026.pdf"}],
+    },
+    "MSG-B003": {
+        "message_id": "MSG-B003",
+        "subject": "Previous Employment Plan Signed",
+        "sent_date": "2025-09-16T10:00:00Z",
+        "is_read": True,
+        "can_reply": False,
+        "message_type": "GENERAL",
+        "body": "Your employment plan EP-B002 has been signed and submitted. Your worker will follow up with next steps.",
+        "attachments": [{"attachment_id": "ATT-EP-002", "filename": "employment_plan_2025.pdf"}],
     },
 }
 
@@ -762,8 +780,15 @@ ADMIN_SEARCH_RESULTS = {
             "case_status": "Active",
             "full_name": "Bob Chen",
         },
+        {
+            "portal_id": CAROL_PORTAL_ID,
+            "bceid_guid": CAROL_BCEID,
+            "case_number": CAROL_CASE,
+            "case_status": "Closed",
+            "full_name": "Carol Williams",
+        },
     ],
-    "total": 2,
+    "total": 3,
     "page": 1,
     "page_size": 10,
 }
