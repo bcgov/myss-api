@@ -151,7 +151,20 @@ async def seed_registration_sessions(session: AsyncSession) -> None:
         RegistrationSession(
             invite_token="seed-invite-in-progress",
             step=3,
-            form_state_json={"account_creation_type": "SELF", "first_name": "New", "last_name": "Applicant"},
+            form_state_json={
+                "account_creation_type": "SELF",
+                "first_name": "Dana",
+                "last_name": "Kowalski",
+                "date_of_birth": "1992-06-18",
+                "email": "dana.kowalski@example.com",
+                "phone_number": "604-555-0404",
+                "address": {
+                    "street": "321 Birch Lane",
+                    "city": "Burnaby",
+                    "province": "BC",
+                    "postal_code": "V5H 3R7",
+                },
+            },
             expires_at=now + timedelta(hours=24),
         ),
     ]
@@ -361,28 +374,47 @@ async def seed_audit_records(session: AsyncSession) -> None:
         WorkerAuditRecord(
             worker_idir=WORKER_IDIR, worker_role="SSBC_WORKER",
             action="GET /api/admin/clients", resource_type="client_search",
-            timestamp=now - timedelta(hours=3), request_ip="10.0.0.1",
+            timestamp=now - timedelta(hours=7, minutes=30), request_ip="10.0.0.1",
         ),
         WorkerAuditRecord(
             worker_idir=WORKER_IDIR, worker_role="SSBC_WORKER",
             action="GET /api/admin/clients/alice-bceid-1001",
             resource_type="client_profile", resource_id=ALICE_BCEID,
             client_bceid_guid=ALICE_BCEID,
-            timestamp=now - timedelta(hours=2), request_ip="10.0.0.1",
+            timestamp=now - timedelta(hours=7), request_ip="10.0.0.1",
+        ),
+        WorkerAuditRecord(
+            worker_idir=WORKER_IDIR, worker_role="SSBC_WORKER",
+            action="POST /api/admin/support-view/tombstone",
+            resource_type="tombstone_session", resource_id=ALICE_BCEID,
+            client_bceid_guid=ALICE_BCEID,
+            timestamp=now - timedelta(hours=6, minutes=30), request_ip="10.0.0.1",
         ),
         WorkerAuditRecord(
             worker_idir=WORKER_IDIR, worker_role="SSBC_WORKER",
             action="POST /api/account/validate-pin",
             resource_type="pin_validation", resource_id=str(ALICE_USER_ID),
             client_bceid_guid=ALICE_BCEID,
-            timestamp=now - timedelta(hours=1, minutes=30), request_ip="10.0.0.1",
+            timestamp=now - timedelta(hours=5), request_ip="10.0.0.1",
+        ),
+        WorkerAuditRecord(
+            worker_idir=WORKER_IDIR, worker_role="SSBC_WORKER",
+            action="GET /api/admin/clients", resource_type="client_search",
+            timestamp=now - timedelta(hours=4), request_ip="10.0.0.1",
+        ),
+        WorkerAuditRecord(
+            worker_idir=WORKER_IDIR, worker_role="SSBC_WORKER",
+            action="GET /api/admin/clients/bob-bceid-1002",
+            resource_type="client_profile", resource_id=BOB_BCEID,
+            client_bceid_guid=BOB_BCEID,
+            timestamp=now - timedelta(hours=3, minutes=30), request_ip="10.0.0.1",
         ),
         WorkerAuditRecord(
             worker_idir=WORKER_IDIR, worker_role="SSBC_WORKER",
             action="GET /api/service-requests",
             resource_type="sr_list", resource_id=str(BOB_USER_ID),
             client_bceid_guid=BOB_BCEID,
-            timestamp=now - timedelta(hours=1), request_ip="10.0.0.1",
+            timestamp=now - timedelta(hours=2), request_ip="10.0.0.1",
         ),
         WorkerAuditRecord(
             worker_idir=WORKER_IDIR, worker_role="SUPER_ADMIN",
@@ -392,7 +424,7 @@ async def seed_audit_records(session: AsyncSession) -> None:
         ),
     ]
     session.add_all(records)
-    print("  Created 5 worker audit records")
+    print("  Created 8 worker audit records")
 
 
 # ---------------------------------------------------------------------------
