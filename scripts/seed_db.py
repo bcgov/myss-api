@@ -269,21 +269,21 @@ async def seed_attachments(session: AsyncSession) -> None:
 
     att_alice = AttachmentRecord(
         profile_id=ALICE_PROFILE_ID,
-        sr_draft_id="seed-sr-alice-assist",
-        filename="proof_of_income.pdf",
+        sr_draft_id="SR-A001",
+        filename="T4_2025_Pacific_Coast_Catering.pdf",
         mime_type="application/pdf",
         size_bytes=45000,
-        storage_path="seed/alice/proof_of_income.pdf",
+        storage_path="seed/alice/T4_2025_Pacific_Coast_Catering.pdf",
         av_status="CLEAN",
         uploaded_at=now,
     )
     att_bob = AttachmentRecord(
         profile_id=BOB_PROFILE_ID,
-        sr_draft_id="seed-sr-bob-dd",
-        filename="bank_statement.pdf",
+        sr_draft_id="SR-B001",
+        filename="TD_bank_statement_Feb_2026.pdf",
         mime_type="application/pdf",
         size_bytes=128000,
-        storage_path="seed/bob/bank_statement.pdf",
+        storage_path="seed/bob/TD_bank_statement_Feb_2026.pdf",
         av_status="PENDING",
         uploaded_at=now,
     )
