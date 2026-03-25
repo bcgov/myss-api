@@ -208,31 +208,50 @@ async def seed_ao_registration(session: AsyncSession) -> None:
 
 
 async def seed_sr_drafts(session: AsyncSession) -> None:
-    existing = await session.get(SRDraft, "seed-sr-alice-assist")
+    existing = await session.get(SRDraft, "SR-A001")
     if existing:
         print("  SR drafts already exist, skipping.")
         return
 
     drafts = [
         SRDraft(
-            sr_id="seed-sr-alice-assist",
+            sr_id="SR-A001",
             user_id=str(ALICE_USER_ID),
             sr_type="ASSIST",
-            draft_json={"employment_status": "unemployed", "seeking_employment": True},
+            draft_json={
+                "employment_status": "unemployed",
+                "seeking_employment": True,
+                "last_employer": "Pacific Coast Catering",
+                "last_employment_date": "2025-11-15",
+                "reason_for_leaving": "Contract ended",
+                "monthly_expenses": "1450.00",
+            },
             updated_at=now,
         ),
         SRDraft(
-            sr_id="seed-sr-alice-crisis",
+            sr_id="SR-A002",
             user_id=str(ALICE_USER_ID),
             sr_type="CRISIS_FOOD",
-            draft_json={},
+            draft_json={
+                "crisis_type": "food",
+                "amount_requested": "200.00",
+                "household_size": 2,
+                "last_grocery_date": "2026-02-10",
+                "description": "Unexpected expense depleted food budget for the month",
+            },
             updated_at=now,
         ),
         SRDraft(
-            sr_id="seed-sr-bob-dd",
+            sr_id="SR-B001",
             user_id=str(BOB_USER_ID),
             sr_type="DIRECT_DEPOSIT",
-            draft_json={"bank_name": "TD Canada Trust", "transit_number": "00123"},
+            draft_json={
+                "bank_name": "TD Canada Trust",
+                "transit_number": "00123",
+                "institution_number": "004",
+                "account_number": "1234567",
+                "account_holder_name": "Bob Chen",
+            },
             updated_at=now,
         ),
     ]
@@ -426,6 +445,8 @@ async def main(reset: bool = False) -> None:
         if reset:
             await reset_seed_data(session)
 
+        print("\nNOTE: SR draft IDs changed to SR-A001/SR-A002/SR-B001.")
+        print("      Run with --reset if you have existing seed data.\n")
         print("\nSeeding database...")
         await seed_users(session)
         await seed_profiles(session)
@@ -452,15 +473,28 @@ async def main(reset: bool = False) -> None:
     print(f"  Carol Williams  bceid_guid={CAROL_BCEID}  user_id={CAROL_USER_ID}")
     print(f"  Worker          idir={WORKER_IDIR}")
     print()
+    alice_jwt = _make_jwt(str(ALICE_USER_ID), 'CLIENT', bceid_guid=ALICE_BCEID)
+    bob_jwt = _make_jwt(str(BOB_USER_ID), 'CLIENT', bceid_guid=BOB_BCEID)
+    carol_jwt = _make_jwt(str(CAROL_USER_ID), 'CLIENT', bceid_guid=CAROL_BCEID)
+    worker_jwt = _make_jwt(WORKER_IDIR, 'WORKER', idir_username=WORKER_IDIR)
+
     print("JWT tokens (valid 24h — paste into Swagger UI Authorize dialog):")
     print()
-    print(f"  Alice:  {_make_jwt(str(ALICE_USER_ID), 'CLIENT', bceid_guid=ALICE_BCEID)}")
+    print(f"  Alice:  {alice_jwt}")
     print()
-    print(f"  Bob:    {_make_jwt(str(BOB_USER_ID), 'CLIENT', bceid_guid=BOB_BCEID)}")
+    print(f"  Bob:    {bob_jwt}")
     print()
-    print(f"  Carol:  {_make_jwt(str(CAROL_USER_ID), 'CLIENT', bceid_guid=CAROL_BCEID)}")
+    print(f"  Carol:  {carol_jwt}")
     print()
-    print(f"  Worker: {_make_jwt(WORKER_IDIR, 'WORKER', idir_username=WORKER_IDIR)}")
+    print(f"  Worker: {worker_jwt}")
+    print()
+    print("-" * 50)
+    print("  myss-web .env (paste into myss-web/.env):")
+    print("-" * 50)
+    print(f"MOCK_AUTH_TOKEN_ALICE={alice_jwt}")
+    print(f"MOCK_AUTH_TOKEN_BOB={bob_jwt}")
+    print(f"MOCK_AUTH_TOKEN_CAROL={carol_jwt}")
+    print(f"MOCK_AUTH_TOKEN_WORKER={worker_jwt}")
     print()
     print("=" * 50)
 

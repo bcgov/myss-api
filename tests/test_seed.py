@@ -68,7 +68,7 @@ class TestSeedSRDrafts:
         await seed_profiles(db_session)
         await seed_sr_drafts(db_session)
         await db_session.commit()
-        draft = await db_session.get(SRDraft, "seed-sr-alice-assist")
+        draft = await db_session.get(SRDraft, "SR-A001")
         assert draft is not None
         assert draft.user_id == str(ALICE_USER_ID)
         assert draft.sr_type == "ASSIST"
