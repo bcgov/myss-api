@@ -10,8 +10,9 @@ Three personas:
   Carol Williams — closed case, unlinked profile, edge-case testing
 """
 
+import base64
 from datetime import datetime, date, timedelta, UTC
-from uuid import uuid4
+from uuid import uuid4  # noqa: F401 — used by mock clients via data.uuid4()
 
 # ---------------------------------------------------------------------------
 # Persona constants
@@ -77,7 +78,6 @@ MOCK_PDF_BYTES = (
 )
 
 # Base64-encoded version for dict-returning methods (e.g. get_t5007_pdf)
-import base64
 MOCK_PDF_BASE64 = base64.b64encode(MOCK_PDF_BYTES).decode()
 
 

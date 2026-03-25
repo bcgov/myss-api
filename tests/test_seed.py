@@ -3,7 +3,6 @@
 import pytest
 import sys
 import os
-from uuid import UUID
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -14,12 +13,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from seed_db import (
     seed_users, seed_profiles, seed_sr_drafts, seed_attachments,
-    ALICE_USER_ID, BOB_USER_ID, CAROL_USER_ID,
-    ALICE_PROFILE_ID, ALICE_BCEID,
+    ALICE_USER_ID, ALICE_PROFILE_ID, ALICE_BCEID,
 )
 from app.models.user import User, Profile
 from app.models.service_requests import SRDraft
-from app.models.attachments import AttachmentRecord
 
 
 @pytest.fixture
