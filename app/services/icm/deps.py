@@ -1,22 +1,42 @@
-import os
+import structlog
 from typing import TypeVar, Type
+from app.config import get_settings
 from app.services.icm.client import ICMClient
+
+logger = structlog.get_logger()
 
 T = TypeVar("T", bound=ICMClient)
 
 _clients: dict[type, ICMClient] = {}
+_MOCK_MAP: dict[type, type] = {}
 
 
 def _icm_kwargs() -> dict:
+    settings = get_settings()
     return {
-        "base_url": os.environ["ICM_BASE_URL"],
-        "client_id": os.environ["ICM_CLIENT_ID"],
-        "client_secret": os.environ["ICM_CLIENT_SECRET"],
-        "token_url": os.environ["ICM_TOKEN_URL"],
+        "base_url": settings.icm_base_url,
+        "client_id": settings.icm_client_id,
+        "client_secret": settings.icm_client_secret,
+        "token_url": settings.icm_token_url,
     }
 
 
+def _use_mock() -> bool:
+    settings = get_settings()
+    return settings.environment == "local" and not settings.icm_base_url
+
+
 def get_siebel_client(cls: Type[T]) -> T:
+    if _use_mock():
+        if not _MOCK_MAP:
+            from app.services.icm.mock import MOCK_CLIENT_MAP
+            _MOCK_MAP.update(MOCK_CLIENT_MAP)
+            logger.info("mock_icm_enabled", msg="Using mock ICM clients — Siebel calls will return canned data")
+        mock_cls = _MOCK_MAP.get(cls)
+        if mock_cls:
+            if cls not in _clients:
+                _clients[cls] = mock_cls()
+            return _clients[cls]  # type: ignore[return-value]
     if cls not in _clients:
         _clients[cls] = cls(**_icm_kwargs())
     return _clients[cls]  # type: ignore[return-value]
@@ -25,6 +45,7 @@ def get_siebel_client(cls: Type[T]) -> T:
 def clear_clients() -> None:
     """Clear the client cache. Call in test fixtures for isolation."""
     _clients.clear()
+    _MOCK_MAP.clear()
 
 
 # Backward-compatible aliases (used by existing router imports)
