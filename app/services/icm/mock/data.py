@@ -554,8 +554,15 @@ SR_DETAILS = {
         "status": "Open",
         "client_name": "Alice Thompson",
         "created_at": "2026-03-10T14:30:00Z",
-        "answers": {"employment_status": "unemployed", "seeking_employment": True},
-        "attachments": [],
+        "answers": {
+            "employment_status": "unemployed",
+            "seeking_employment": True,
+            "last_employer": "Pacific Coast Catering",
+            "last_employment_date": "2025-11-15",
+            "reason_for_leaving": "Contract ended",
+            "monthly_expenses": "1450.00",
+        },
+        "attachments": [{"attachment_id": "ATT-001", "filename": "T4_2025_Pacific_Coast_Catering.pdf"}],
     },
     "SR-A002": {
         "sr_id": "SR-A002",
@@ -564,7 +571,13 @@ SR_DETAILS = {
         "status": "Submitted",
         "client_name": "Alice Thompson",
         "created_at": "2026-02-15T09:00:00Z",
-        "answers": {"crisis_type": "food", "amount_requested": "200.00"},
+        "answers": {
+            "crisis_type": "food",
+            "amount_requested": "200.00",
+            "household_size": 2,
+            "last_grocery_date": "2026-02-10",
+            "description": "Unexpected expense depleted food budget for the month",
+        },
         "attachments": [],
     },
     "SR-B001": {
@@ -574,7 +587,13 @@ SR_DETAILS = {
         "status": "Cancelled",
         "client_name": "Bob Chen",
         "created_at": "2026-01-20T11:00:00Z",
-        "answers": {"bank_name": "TD Canada Trust", "transit_number": "00123", "account_number": "1234567"},
+        "answers": {
+            "bank_name": "TD Canada Trust",
+            "transit_number": "00123",
+            "institution_number": "004",
+            "account_number": "1234567",
+            "account_holder_name": "Bob Chen",
+        },
         "attachments": [],
     },
 }
@@ -800,14 +819,14 @@ WORKER_PERMISSIONS = {
 ATTACHMENT_METADATA = {
     "ATT-001": {
         "attachment_id": "ATT-001",
-        "filename": "proof_of_income.pdf",
+        "filename": "T4_2025_Pacific_Coast_Catering.pdf",
         "mime_type": "application/pdf",
         "size_bytes": 45000,
         "uploaded_at": "2026-03-10T14:35:00Z",
     },
     "ATT-002": {
         "attachment_id": "ATT-002",
-        "filename": "bank_statement.pdf",
+        "filename": "TD_bank_statement_Feb_2026.pdf",
         "mime_type": "application/pdf",
         "size_bytes": 128000,
         "uploaded_at": "2026-01-20T11:05:00Z",
