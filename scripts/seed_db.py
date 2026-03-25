@@ -24,6 +24,7 @@ import bcrypt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel
 
 from app.models.user import User, Profile
 from app.models.registration import RegistrationSession
@@ -414,6 +415,11 @@ async def main(reset: bool = False) -> None:
     print(f"Database: {db_url}")
 
     engine = create_async_engine(db_url, echo=False)
+
+    # Ensure tables exist (creates them if using a fresh SQLite file)
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
 
     async with async_session() as session:
