@@ -17,7 +17,8 @@ class MockSRClient(SiebelSRClient):
         return {"sr_id": new_id, "sr_type": sr_type, "sr_number": new_id, "status": "Open", "created_at": data._now().isoformat()}
 
     async def get_sr_list(self, profile_id: str) -> dict:
-        return data.SR_LISTS.get(profile_id, {"items": [], "total": 0, "page": 1, "page_size": 10})
+        resolved = data.resolve_profile_id(profile_id)
+        return data.SR_LISTS.get(resolved, {"items": [], "total": 0, "page": 1, "page_size": 10})
 
     async def get_sr_detail(self, sr_id: str) -> dict:
         detail = data.SR_DETAILS.get(sr_id)

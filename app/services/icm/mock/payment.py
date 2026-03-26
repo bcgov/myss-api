@@ -13,8 +13,8 @@ class MockPaymentClient(SiebelPaymentClient):
         pass
 
     async def get_payment_info(self, case_number: str) -> dict:
-        info = data.PAYMENT_INFO.get(case_number, data.PAYMENT_INFO[data.ALICE_CASE])
-        info = dict(info)
+        resolved = data.resolve_case_number(case_number)
+        info = dict(data.PAYMENT_INFO.get(resolved, data.PAYMENT_INFO[data.ALICE_CASE]))
         info["upcoming_benefit_date"] = (data._today().replace(day=20)).isoformat()
         return info
 
@@ -22,13 +22,16 @@ class MockPaymentClient(SiebelPaymentClient):
         return data._cheque_schedule(case_number)
 
     async def get_t5007_slips(self, profile_id: str) -> dict:
-        return data.T5007_SLIPS.get(profile_id, {"slips": []})
+        resolved = data.resolve_profile_id(profile_id)
+        return data.T5007_SLIPS.get(resolved, {"slips": []})
 
     async def get_t5_history_years(self, profile_id: str) -> dict:
-        return data.T5_HISTORY_YEARS.get(profile_id, {"years": []})
+        resolved = data.resolve_profile_id(profile_id)
+        return data.T5_HISTORY_YEARS.get(resolved, {"years": []})
 
     async def get_mis_data(self, profile_id: str) -> dict:
-        return data.MIS_DATA.get(profile_id, data.MIS_DATA[data.ALICE_PROFILE_ID])
+        resolved = data.resolve_profile_id(profile_id)
+        return data.MIS_DATA.get(resolved, data.MIS_DATA[data.ALICE_PROFILE_ID])
 
     async def get_t5007_pdf(self, profile_id: str, year: int) -> dict:
         return {"pdf_data": data.MOCK_PDF_BASE64, "filename": f"T5007_{year}.pdf"}

@@ -13,7 +13,8 @@ class MockMonthlyReportClient(SiebelMonthlyReportClient):
         pass
 
     async def get_report_period(self, case_number: str) -> dict:
-        return data._report_period(case_number)
+        resolved = data.resolve_case_number(case_number)
+        return data._report_period(resolved)
 
     async def submit_monthly_report(self, sd81_id: str, submission_data: dict, *, profile_id: str | None = None) -> dict:
         return {"status": "ok", "sd81_id": sd81_id, "new_status": "SUB", "submitted_at": data._now().isoformat()}
@@ -22,7 +23,8 @@ class MockMonthlyReportClient(SiebelMonthlyReportClient):
         return data.QUESTIONNAIRE
 
     async def list_reports(self, profile_id: str, days_ago: int) -> dict:
-        return data.MONTHLY_REPORTS.get(profile_id, {"reports": [], "total": 0})
+        resolved = data.resolve_profile_id(profile_id)
+        return data.MONTHLY_REPORTS.get(resolved, {"reports": [], "total": 0})
 
     async def start_report(self, profile_id: str) -> dict:
         new_id = f"SD81-NEW-{data.uuid4().hex[:6]}"

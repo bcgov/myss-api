@@ -13,10 +13,12 @@ class MockNotificationClient(SiebelNotificationClient):
         pass
 
     async def get_banners(self, case_number: str) -> dict:
-        return data.BANNERS.get(case_number, {"banners": []})
+        resolved = data.resolve_case_number(case_number)
+        return data.BANNERS.get(resolved, {"banners": []})
 
     async def get_messages(self, profile_id: str, page: int = 1) -> dict:
-        return data.MESSAGES.get(profile_id, {"messages": [], "total": 0})
+        resolved = data.resolve_profile_id(profile_id)
+        return data.MESSAGES.get(resolved, {"messages": [], "total": 0})
 
     async def get_message_detail(self, message_id: str) -> dict:
         detail = data.MESSAGE_DETAILS.get(message_id)

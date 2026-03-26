@@ -13,7 +13,8 @@ class MockEPClient(SiebelEPClient):
         pass
 
     async def get_ep_list(self, profile_id: str) -> dict:
-        return data.EP_LISTS.get(profile_id, {"plans": []})
+        resolved = data.resolve_profile_id(profile_id)
+        return data.EP_LISTS.get(resolved, {"plans": []})
 
     async def get_ep_detail(self, ep_id: str) -> dict:
         detail = data.EP_DETAILS.get(ep_id)

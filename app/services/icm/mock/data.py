@@ -65,9 +65,42 @@ _PROFILE_TO_CASE = {
 
 _CASE_TO_PROFILE = {v: k for k, v in _PROFILE_TO_CASE.items()}
 
+_USER_TO_PROFILE = {
+    ALICE_USER_ID: ALICE_PROFILE_ID,
+    BOB_USER_ID: BOB_PROFILE_ID,
+    CAROL_USER_ID: CAROL_PROFILE_ID,
+}
+
+_USER_TO_CASE = {
+    ALICE_USER_ID: ALICE_CASE,
+    BOB_USER_ID: BOB_CASE,
+    CAROL_USER_ID: CAROL_CASE,
+}
+
 # Default persona for unknown IDs
 _DEFAULT_PROFILE_ID = ALICE_PROFILE_ID
 _DEFAULT_CASE = ALICE_CASE
+
+
+def resolve_profile_id(identifier: str) -> str:
+    """Resolve any persona identifier (user_id, profile_id, bceid_guid) to profile_id."""
+    if identifier in _USER_TO_PROFILE:
+        return _USER_TO_PROFILE[identifier]
+    if identifier in _BCEID_TO_PROFILE_ID:
+        return _BCEID_TO_PROFILE_ID[identifier]
+    # Already a profile_id or unknown — return as-is
+    return identifier
+
+
+def resolve_case_number(identifier: str) -> str:
+    """Resolve any persona identifier to case_number."""
+    if identifier in _USER_TO_CASE:
+        return _USER_TO_CASE[identifier]
+    if identifier in _BCEID_TO_CASE:
+        return _BCEID_TO_CASE[identifier]
+    if identifier in _PROFILE_TO_CASE:
+        return _PROFILE_TO_CASE[identifier]
+    return _DEFAULT_CASE
 
 # Minimal valid PDF placeholder for byte-returning methods
 MOCK_PDF_BYTES = (
@@ -265,7 +298,7 @@ PAYMENT_INFO = {
         "upcoming_benefit_date": None,  # filled dynamically
         "assistance_type": "EA",
         "supplements": [
-            {"code": 32, "amount": "50.00", "effective_date": "2025-01-01"},
+            {"code": "32", "amount": "50.00", "effective_date": "2025-01-01"},
         ],
         "service_provider_payments": [],
         "mis_data": {
@@ -280,7 +313,7 @@ PAYMENT_INFO = {
                 {"code": 32, "amount": "50.00", "description": "Housing Stability Supplement"},
             ],
             "deductions": [
-                {"code": 99, "amount": "50.00", "description": "Earned Income Exemption"},
+                {"code": "99", "amount": "50.00", "description": "Earned Income Exemption"},
             ],
             "aee_balance": "200.00",
         },
@@ -289,11 +322,11 @@ PAYMENT_INFO = {
         "upcoming_benefit_date": None,
         "assistance_type": "EA",
         "supplements": [
-            {"code": 32, "amount": "75.00", "effective_date": "2025-01-01"},
-            {"code": 73, "amount": "45.00", "effective_date": "2025-06-01"},
+            {"code": "32", "amount": "75.00", "effective_date": "2025-01-01"},
+            {"code": "73", "amount": "45.00", "effective_date": "2025-06-01"},
         ],
         "service_provider_payments": [
-            {"provider_name": "BC Hydro", "amount": "120.00", "payment_date": None},
+            {"provider_name": "BC Hydro", "amount": "120.00", "payment_date": "2026-03-15"},
         ],
         "mis_data": {
             "mis_person_id": BOB_MIS_ID,
@@ -401,7 +434,7 @@ MESSAGES = {
                 "sent_date": "2026-03-15T09:00:00Z",
                 "is_read": False,
                 "can_reply": False,
-                "message_type": "SD81_STANDARD",
+                "message_type": "HR0081",
             },
             {
                 "message_id": "MSG-A002",
@@ -409,7 +442,7 @@ MESSAGES = {
                 "sent_date": "2026-03-10T14:30:00Z",
                 "is_read": True,
                 "can_reply": False,
-                "message_type": "FORM_SUBMISSION",
+                "message_type": "FormSubmission",
             },
             {
                 "message_id": "MSG-A003",
@@ -417,7 +450,7 @@ MESSAGES = {
                 "sent_date": "2026-03-01T10:00:00Z",
                 "is_read": True,
                 "can_reply": True,
-                "message_type": "GENERAL",
+                "message_type": "General",
             },
         ],
         "total": 3,
@@ -430,7 +463,7 @@ MESSAGES = {
                 "sent_date": "2026-03-18T11:00:00Z",
                 "is_read": False,
                 "can_reply": False,
-                "message_type": "SD81_RESTART",
+                "message_type": "HR0081Restart",
             },
             {
                 "message_id": "MSG-B002",
@@ -438,7 +471,7 @@ MESSAGES = {
                 "sent_date": "2026-03-05T08:00:00Z",
                 "is_read": True,
                 "can_reply": False,
-                "message_type": "GENERAL",
+                "message_type": "General",
             },
             {
                 "message_id": "MSG-B003",
@@ -446,7 +479,7 @@ MESSAGES = {
                 "sent_date": "2025-09-16T10:00:00Z",
                 "is_read": True,
                 "can_reply": False,
-                "message_type": "GENERAL",
+                "message_type": "General",
             },
         ],
         "total": 3,
@@ -461,7 +494,7 @@ MESSAGE_DETAILS = {
         "sent_date": "2026-03-15T09:00:00Z",
         "is_read": False,
         "can_reply": False,
-        "message_type": "SD81_STANDARD",
+        "message_type": "HR0081",
         "body": "Your monthly report for March 2026 is due. Please submit it before the period close date to avoid delays in your benefit payment.",
         "attachments": [],
     },
@@ -471,7 +504,7 @@ MESSAGE_DETAILS = {
         "sent_date": "2026-03-10T14:30:00Z",
         "is_read": True,
         "can_reply": False,
-        "message_type": "FORM_SUBMISSION",
+        "message_type": "FormSubmission",
         "body": "We have received your service request SR-100101. You will be notified when it has been reviewed.",
         "attachments": [{"attachment_id": "ATT-001", "filename": "T4_2025_Pacific_Coast_Catering.pdf"}],
     },
@@ -481,7 +514,7 @@ MESSAGE_DETAILS = {
         "sent_date": "2026-03-01T10:00:00Z",
         "is_read": True,
         "can_reply": True,
-        "message_type": "GENERAL",
+        "message_type": "General",
         "body": "Effective April 1, 2026, shelter allowance rates have been updated. Please review your payment information for details.",
         "attachments": [],
     },
@@ -491,7 +524,7 @@ MESSAGE_DETAILS = {
         "sent_date": "2026-03-18T11:00:00Z",
         "is_read": False,
         "can_reply": False,
-        "message_type": "SD81_RESTART",
+        "message_type": "HR0081Restart",
         "body": "Your monthly report for March 2026 requires additional information. Please restart and resubmit.",
         "attachments": [],
     },
@@ -501,7 +534,7 @@ MESSAGE_DETAILS = {
         "sent_date": "2026-03-05T08:00:00Z",
         "is_read": True,
         "can_reply": False,
-        "message_type": "GENERAL",
+        "message_type": "General",
         "body": "Your employment plan EP-B001 is ready for your electronic signature. Please review and sign at your earliest convenience.",
         "attachments": [{"attachment_id": "ATT-EP-001", "filename": "employment_plan_2026.pdf"}],
     },
@@ -511,7 +544,7 @@ MESSAGE_DETAILS = {
         "sent_date": "2025-09-16T10:00:00Z",
         "is_read": True,
         "can_reply": False,
-        "message_type": "GENERAL",
+        "message_type": "General",
         "body": "Your employment plan EP-B002 has been signed and submitted. Your worker will follow up with next steps.",
         "attachments": [{"attachment_id": "ATT-EP-002", "filename": "employment_plan_2025.pdf"}],
     },

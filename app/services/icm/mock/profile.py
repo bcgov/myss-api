@@ -31,4 +31,5 @@ class MockProfileClient(SiebelProfileClient):
         return {"has_newer": False}
 
     async def get_banners(self, case_number: str) -> dict:
-        return data.BANNERS.get(case_number, {"banners": []})
+        resolved = data.resolve_case_number(case_number)
+        return data.BANNERS.get(resolved, {"banners": []})
