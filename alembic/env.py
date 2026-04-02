@@ -22,7 +22,8 @@ def do_run_migrations(connection):
 
 
 async def run_async_migrations():
-    url = config.get_main_option("sqlalchemy.url")
+    import os
+    url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     engine = create_async_engine(url, poolclass=pool.NullPool)
     async with engine.connect() as connection:
         await connection.run_sync(do_run_migrations)
@@ -36,7 +37,8 @@ def run_migrations_online():
 
 
 def run_migrations_offline():
-    url = config.get_main_option("sqlalchemy.url")
+    import os
+    url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
