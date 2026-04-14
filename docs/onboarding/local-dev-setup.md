@@ -99,6 +99,48 @@ alembic upgrade head
 
 On first run this creates all tables. Re-running is safe — Alembic tracks applied revisions.
 
+## Seed Data & Mock Mode
+
+### Seed the database
+
+After running migrations, populate the database with test data:
+
+```bash
+python scripts/seed_db.py
+```
+
+This creates three test personas with realistic, relationship-consistent data across all tables:
+
+| Persona | BCeID GUID | Case | Scenario |
+|---|---|---|---|
+| Alice Thompson | `alice-bceid-1001` | #100100 (Active) | Single client, 1 dependant, 2 SR drafts, clean attachment |
+| Bob Chen | `bob-bceid-1002` | #100200 (Active) | Couple (spouse: Maria), PWD, employment plan pending signature |
+| Carol Williams | `carol-bceid-1003` | #100300 (Closed) | Unlinked profile, edge-case testing |
+
+The seeder also prints **JWT tokens** for each persona (valid 24 hours). Paste these into Swagger UI's **Authorize** dialog to call authenticated endpoints.
+
+The command is idempotent — running it again skips existing records. To start fresh:
+
+```bash
+python scripts/seed_db.py --reset
+```
+
+### Mock ICM / Siebel mode
+
+When `ENVIRONMENT=local` and `ICM_BASE_URL` is empty (the default in the `.env` template above), the API automatically uses **mock ICM clients** that return canned data instead of calling the real Siebel REST services. This means:
+
+- All API endpoints return realistic data without VPN access
+- No Siebel credentials or connectivity required
+- You can exercise the full UI workflow locally
+
+Mock mode is confirmed in the server logs at startup:
+
+```
+mock_icm_enabled=true msg="Using mock ICM clients — Siebel calls will return canned data"
+```
+
+To disable mock mode and use real Siebel (requires VPN), set `ICM_BASE_URL` to the actual endpoint in your `.env`.
+
 ## Start the API Server
 
 ```bash
