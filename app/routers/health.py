@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from app.db.session import get_session
 from app.cache.redis_client import get_redis
 
-router = APIRouter()
+router = APIRouter(tags=["system"])
 
 
 class HealthResponse(BaseModel):
