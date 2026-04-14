@@ -87,8 +87,7 @@ class MonthlyReportService:
 
         if not self._pin_service:
             raise RuntimeError("PINService not configured")
-        if not await self._pin_service.validate(bceid_guid, pin):
-            raise PINValidationError("Invalid PIN")
+        await self._pin_service.validate_or_raise(bceid_guid, pin)
 
         if spouse_pin and not await self._pin_service.validate(bceid_guid, spouse_pin):
             raise PINValidationError("Invalid spouse PIN")

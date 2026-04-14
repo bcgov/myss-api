@@ -74,10 +74,7 @@ class NotificationMessageService:
         await self._client.delete_message(msg_id)
 
     async def sign_and_send(self, msg_id: str, pin: str, bceid_guid: str) -> None:
-        from app.services.icm.exceptions import PINValidationError
-
         if not self._pin_service:
             raise RuntimeError("PINService not configured")
-        if not await self._pin_service.validate(bceid_guid, pin):
-            raise PINValidationError("Invalid PIN")
+        await self._pin_service.validate_or_raise(bceid_guid, pin)
         await self._client.sign_and_send(msg_id, pin)

@@ -1,3 +1,6 @@
+from app.services.icm.exceptions import PINValidationError
+
+
 class PINService:
     def __init__(self, client):
         self._client = client
@@ -5,6 +8,11 @@ class PINService:
     async def validate(self, user_id: str, pin: str) -> bool:
         result = await self._client.validate_pin(user_id, pin)
         return result.get("valid", False)
+
+    async def validate_or_raise(self, user_id: str, pin: str) -> None:
+        """Validate PIN; raise PINValidationError if invalid."""
+        if not await self.validate(user_id, pin):
+            raise PINValidationError("Invalid PIN")
 
     async def change_pin(self, user_id: str, current_pin: str, new_pin: str) -> None:
         valid = await self.validate(user_id, current_pin)
