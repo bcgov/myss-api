@@ -20,6 +20,7 @@ from app.routers.admin.ao import ao_router
 from app.middleware.audit_middleware import AuditMiddleware
 from app.auth.dependencies import get_current_user, require_role
 from app.auth.models import UserContext, UserRole
+from app.config import get_settings
 
 structlog.configure(
     processors=[
@@ -61,10 +62,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_raw_origins = os.getenv(
-    "CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://localhost:3000",
-)
+_settings = get_settings()
+_raw_origins = os.getenv("CORS_ALLOWED_ORIGINS")
+if _raw_origins is None:
+    if _settings.environment in ("local", "test"):
+        _raw_origins = "http://localhost:5173,http://localhost:3000"
+    else:
+        _raw_origins = ""
 _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
