@@ -30,7 +30,7 @@ def make_token(role: str = "CLIENT", secret: str = "change-me-in-production") ->
     return pyjwt.encode(payload, secret, algorithm="HS256")
 
 
-_NOW = datetime(2026, 3, 18, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime.now(timezone.utc)
 _FUTURE = _NOW + timedelta(days=7)
 _PAST = _NOW - timedelta(days=1)
 
