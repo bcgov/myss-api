@@ -19,3 +19,13 @@ def _reset_redis_pool_between_tests():
     so each test lazy-creates a pool on its own loop."""
     yield
     redis_client._redis_pool = None
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Reset slowapi limiter counters between tests so rate limits don't leak
+    across tests. Rate-limit mechanics are exercised in test_rate_limiting.py."""
+    from app.middleware.rate_limiter import limiter
+    limiter.reset()
+    yield
+    limiter.reset()

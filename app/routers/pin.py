@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
+from app.middleware.rate_limiter import limiter
 from app.services.icm.deps import get_siebel_account_client
 from app.domains.account.models import (
     PINValidateRequest,
@@ -19,12 +20,14 @@ def _get_pin_service() -> PINService:
 
 
 @pin_router.post("/validate", status_code=200)
+@limiter.limit("5/minute")
 async def validate_pin(
-    request: PINValidateRequest,
+    request: Request,
+    payload: PINValidateRequest,
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: PINService = Depends(_get_pin_service),
 ):
-    valid = await svc.validate(user.user_id, request.pin)
+    valid = await svc.validate(user.user_id, payload.pin)
     if not valid:
         raise HTTPException(status_code=403, detail="Invalid PIN")
     return {"status": "valid"}
