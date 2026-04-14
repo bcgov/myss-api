@@ -13,6 +13,7 @@ from app.services.icm.exceptions import (
     PINValidationError,
     ICMError,
 )
+from app.domains.monthly_reports.service import ReportingPeriodClosedError
 
 
 async def icm_unavailable_handler(request: Request, exc: ICMServiceUnavailableError):
@@ -40,6 +41,13 @@ async def pin_validation_handler(request: Request, exc: PINValidationError):
     return JSONResponse(
         status_code=403,
         content={"detail": str(exc)},
+    )
+
+
+async def reporting_period_closed_handler(request: Request, exc: ReportingPeriodClosedError):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": str(exc) or "Submission period is closed for this benefit month"},
     )
 
 

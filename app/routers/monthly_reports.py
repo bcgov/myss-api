@@ -1,6 +1,4 @@
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from app.auth.dependencies import require_role
@@ -78,21 +76,9 @@ async def submit_report(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: MonthlyReportService = Depends(_get_mr_service),
 ) -> SD81SubmitResponse:
-    # Inline period-closed check
-    period = await svc.get_current_period(user.user_id)
-    close = period.period_close_date
-    if close.tzinfo is None:
-        close = close.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) > close:
-        raise HTTPException(
-            status_code=422,
-            detail="Submission period is closed for this benefit month",
-        )
-
-    # Key player check: stub — accept all (will be implemented in Phase 8)
-
-    # PINValidationError → 403 and ICMServiceUnavailableError → 503
-    # are handled by global exception handlers in app/exception_handlers.py
+    # ReportingPeriodClosedError → 422, PINValidationError → 403, and
+    # ICMServiceUnavailableError → 503 are handled by global exception
+    # handlers in app/exception_handlers.py
     return await svc.submit_report(
         sd81_id=sd81_id,
         pin=request.pin,

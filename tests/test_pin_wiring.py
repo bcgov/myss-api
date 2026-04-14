@@ -46,6 +46,12 @@ async def test_mr_submit_uses_real_pin_service():
 
     mr_client = AsyncMock()
     mr_client.submit_monthly_report = AsyncMock(return_value={"status": "SUBMITTED", "submitted_at": "2026-01-01T00:00:00Z"})
+    mr_client.get_report_period = AsyncMock(return_value={
+        "benefit_month": "2026-01-01",
+        "income_date": "2026-01-10",
+        "cheque_issue_date": "2026-01-20",
+        "period_close_date": "2099-12-31T23:59:59+00:00",
+    })
 
     svc = MonthlyReportService(mr_client=mr_client, pin_service=pin_svc)
     await svc.submit_report(sd81_id="sd81-1", pin="1234", spouse_pin=None, bceid_guid="guid")

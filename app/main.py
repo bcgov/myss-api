@@ -98,6 +98,7 @@ from app.exception_handlers import (
     icm_sr_withdrawn_handler,
     pin_validation_handler,
     icm_error_handler,
+    reporting_period_closed_handler,
 )
 from app.services.icm.exceptions import (
     ICMServiceUnavailableError,
@@ -106,9 +107,11 @@ from app.services.icm.exceptions import (
     PINValidationError,
     ICMError,
 )
+from app.domains.monthly_reports.service import ReportingPeriodClosedError
 
 app.add_exception_handler(ICMServiceUnavailableError, icm_unavailable_handler)
 app.add_exception_handler(ICMActiveSRConflictError, icm_conflict_handler)
 app.add_exception_handler(ICMSRAlreadyWithdrawnError, icm_sr_withdrawn_handler)
 app.add_exception_handler(PINValidationError, pin_validation_handler)
 app.add_exception_handler(ICMError, icm_error_handler)
+app.add_exception_handler(ReportingPeriodClosedError, reporting_period_closed_handler)

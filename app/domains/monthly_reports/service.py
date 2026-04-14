@@ -15,6 +15,10 @@ from app.domains.monthly_reports.models import (
 )
 
 
+class ReportingPeriodClosedError(Exception):
+    """Reporting period has closed and no further submissions are accepted."""
+
+
 class MonthlyReportService:
     def __init__(
         self,
@@ -70,6 +74,16 @@ class MonthlyReportService:
         profile_id: str | None = None,
     ) -> SD81SubmitResponse:
         from app.services.icm.exceptions import PINValidationError
+
+        # Period-closed check: reject submissions once the benefit month has closed.
+        period = await self.get_current_period(profile_id or bceid_guid)
+        close = period.period_close_date
+        if close.tzinfo is None:
+            close = close.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) > close:
+            raise ReportingPeriodClosedError(
+                "Submission period is closed for this benefit month"
+            )
 
         if not self._pin_service:
             raise RuntimeError("PINService not configured")

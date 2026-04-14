@@ -264,8 +264,15 @@ async def test_submit_report_returns_200_with_future_close_date(ac, override_mr_
 
 
 async def test_submit_report_returns_422_when_period_closed(ac, override_mr_service):
-    # period_close_date is in the past
+    # Service raises ReportingPeriodClosedError → global handler translates to 422
+    from app.domains.monthly_reports.service import ReportingPeriodClosedError
+
     override_mr_service.get_current_period = AsyncMock(return_value=_STUB_PAST_PERIOD)
+    override_mr_service.submit_report = AsyncMock(
+        side_effect=ReportingPeriodClosedError(
+            "Submission period is closed for this benefit month"
+        )
+    )
     token = make_token("CLIENT")
     response = await ac.post(
         "/monthly-reports/SD81-001/submit",

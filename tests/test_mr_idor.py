@@ -5,12 +5,22 @@ from unittest.mock import AsyncMock
 from app.domains.monthly_reports.service import MonthlyReportService
 
 
+_FUTURE_PERIOD = {
+    "benefit_month": "2026-03-01",
+    "income_date": "2026-03-10",
+    "cheque_issue_date": "2026-03-20",
+    "period_close_date": "2099-12-31T23:59:59+00:00",
+}
+
+
 @pytest.fixture
 def svc():
     from app.domains.account.pin_service import PINService
     pin_svc = PINService(client=AsyncMock())
     pin_svc.validate = AsyncMock(return_value=True)
-    return MonthlyReportService(mr_client=AsyncMock(), pin_service=pin_svc)
+    mr_client = AsyncMock()
+    mr_client.get_report_period = AsyncMock(return_value=_FUTURE_PERIOD)
+    return MonthlyReportService(mr_client=mr_client, pin_service=pin_svc)
 
 
 # ---------------------------------------------------------------------------
