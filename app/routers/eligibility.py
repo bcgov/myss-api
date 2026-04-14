@@ -2,13 +2,18 @@
 from decimal import Decimal
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 import redis.asyncio as aioredis
+from redis.exceptions import RedisError
+import structlog
 
 from app.db.session import get_session
 from app.cache.redis_client import get_redis
 from app.domains.eligibility.models import EligibilityRequest, EligibilityResponse, RateRow, AssetLimitRow
 from app.domains.eligibility.calculator import EligibilityCalculatorService
 from app.domains.eligibility.rate_table_service import RateTableService
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/eligibility-estimator", tags=["public"])
 
@@ -51,9 +56,14 @@ async def calculate_eligibility(
     try:
         income_rates = await rate_svc.get_income_rates()
         asset_limits = await rate_svc.get_asset_limits()
-    except Exception:
+    except (SQLAlchemyError, RedisError) as exc:
         # Fallback to hard-coded FDD rates if DB unavailable
         # This ensures the estimator remains functional during DB maintenance
+        logger.warning(
+            "eligibility_rate_table_fallback",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
         income_rates = _fallback_income_rates()
         asset_limits = _fallback_asset_limits()
 
