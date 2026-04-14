@@ -35,7 +35,7 @@ async def get_current_period(
 
 @router.get("", response_model=SD81ListResponse)
 async def list_reports(
-    days_ago: int = Query(365, ge=1),
+    days_ago: int = Query(365, ge=1, le=3650, description="Lookback window in days (max 10 years)"),
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: MonthlyReportService = Depends(_get_mr_service),
 ) -> SD81ListResponse:

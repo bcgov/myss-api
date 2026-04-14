@@ -48,7 +48,7 @@ async def list_service_requests(
 
 @router.get("/eligible-types", response_model=list[SRTypeMetadata])
 async def get_eligible_types(
-    case_status: str = Query(...),
+    case_status: str = Query(..., pattern=r"^[A-Za-z_]{1,32}$", max_length=32),
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: ServiceRequestService = Depends(_get_sr_service),
 ) -> list[SRTypeMetadata]:
