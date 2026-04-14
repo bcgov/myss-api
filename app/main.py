@@ -97,15 +97,18 @@ from app.exception_handlers import (
     icm_conflict_handler,
     icm_sr_withdrawn_handler,
     pin_validation_handler,
+    icm_error_handler,
 )
 from app.services.icm.exceptions import (
     ICMServiceUnavailableError,
     ICMActiveSRConflictError,
     ICMSRAlreadyWithdrawnError,
     PINValidationError,
+    ICMError,
 )
 
 app.add_exception_handler(ICMServiceUnavailableError, icm_unavailable_handler)
 app.add_exception_handler(ICMActiveSRConflictError, icm_conflict_handler)
 app.add_exception_handler(ICMSRAlreadyWithdrawnError, icm_sr_withdrawn_handler)
 app.add_exception_handler(PINValidationError, pin_validation_handler)
+app.add_exception_handler(ICMError, icm_error_handler)

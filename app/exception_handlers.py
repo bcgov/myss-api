@@ -11,6 +11,7 @@ from app.services.icm.exceptions import (
     ICMActiveSRConflictError,
     ICMSRAlreadyWithdrawnError,
     PINValidationError,
+    ICMError,
 )
 
 
@@ -39,4 +40,12 @@ async def pin_validation_handler(request: Request, exc: PINValidationError):
     return JSONResponse(
         status_code=403,
         content={"detail": str(exc)},
+    )
+
+
+async def icm_error_handler(request: Request, exc: ICMError):
+    """Fallthrough handler for any ICMError subclass not covered by a more specific handler."""
+    return JSONResponse(
+        status_code=502,
+        content={"detail": "Upstream service error"},
     )
