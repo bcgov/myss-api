@@ -2,9 +2,10 @@ from datetime import datetime, timedelta, timezone
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Header, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.cache.redis_client import get_redis
+from app.domains.registration.validators import validate_name, validate_sin
 from app.dependencies.require_worker_role import require_worker_role
 from app.dependencies.require_support_view_session import (
     require_support_view_session,
@@ -30,6 +31,20 @@ class SearchRequest(BaseModel):
     last_name: str | None = None
     sin: str | None = None
     page: int = 1
+
+    @field_validator("sin")
+    @classmethod
+    def _check_sin(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        return validate_sin(v)
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _check_name(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        return validate_name(v)
 
 
 class SearchResult(BaseModel):
