@@ -29,5 +29,9 @@ Thumbs.db
 
 # Office temp files
 ~$*
+
+# Worktrees
+.worktrees/
+
 /docs/superpowers
 CLAUDE.md
