@@ -6,7 +6,7 @@ from app.auth.models import UserContext, UserRole
 from app.db.session import get_session
 from app.domains.account.pin_service import PINService
 from app.services.icm.deps import get_siebel_sr_client, get_siebel_account_client
-from app.services.icm.exceptions import ICMActiveSRConflictError, ICMSRAlreadyWithdrawnError, ICMError, ICMServiceUnavailableError
+from app.services.icm.exceptions import ICMActiveSRConflictError, ICMSRAlreadyWithdrawnError, ICMError
 from app.domains.service_requests.models import (
     SRListResponse,
     SRTypeMetadata,
@@ -65,11 +65,6 @@ async def create_service_request(
         raise HTTPException(
             status_code=409,
             detail="An active service request of this type already exists",
-        )
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
         )
 
 

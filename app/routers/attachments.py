@@ -18,7 +18,6 @@ from app.domains.attachments.models import (
 )
 from app.domains.attachments.service import AttachmentService
 from app.services.icm.deps import get_siebel_attachment_client
-from app.services.icm.exceptions import ICMServiceUnavailableError
 
 attachment_router = APIRouter(tags=["attachments"])
 
@@ -136,8 +135,6 @@ async def submit_attachment(
         return await svc.submit_attachment(sr_id=sr_id, scan_id=body.scan_id, filename=body.filename, user_id=user.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except ICMServiceUnavailableError:
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable. Please try again later.")
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +148,7 @@ async def download_sr_attachment(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: AttachmentService = Depends(_get_attachment_service),
 ):
-    try:
-        content, filename = await svc.download_sr_attachment(profile_id=user.user_id, sr_id=sr_id)
-    except ICMServiceUnavailableError:
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable. Please try again later.")
+    content, filename = await svc.download_sr_attachment(profile_id=user.user_id, sr_id=sr_id)
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/octet-stream",
@@ -174,12 +168,9 @@ async def download_message_attachment(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: AttachmentService = Depends(_get_attachment_service),
 ):
-    try:
-        content, filename = await svc.download_message_attachment(
-            profile_id=user.user_id, msg_id=msg_id, attachment_id=attachment_id
-        )
-    except ICMServiceUnavailableError:
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable. Please try again later.")
+    content, filename = await svc.download_message_attachment(
+        profile_id=user.user_id, msg_id=msg_id, attachment_id=attachment_id
+    )
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/octet-stream",

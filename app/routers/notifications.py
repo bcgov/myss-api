@@ -4,7 +4,6 @@ from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
 from app.domains.account.pin_service import PINService
 from app.services.icm.deps import get_siebel_notification_client, get_siebel_account_client
-from app.services.icm.exceptions import ICMServiceUnavailableError
 from app.domains.notifications.models import (
     BannerListResponse,
     InboxListResponse,
@@ -73,13 +72,7 @@ async def reply_to_message(
     message = await svc.get_message_detail(msg_id)
     if not message.can_reply:
         raise HTTPException(status_code=403, detail="Reply not allowed")
-    try:
-        return await svc.reply(msg_id, request, message.can_reply)
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    return await svc.reply(msg_id, request, message.can_reply)
 
 
 @messages_router.delete("/{msg_id}", status_code=204)
@@ -88,13 +81,7 @@ async def delete_message(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: NotificationMessageService = Depends(_get_notification_service),
 ):
-    try:
-        await svc.delete_message(msg_id)
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    await svc.delete_message(msg_id)
     return None
 
 

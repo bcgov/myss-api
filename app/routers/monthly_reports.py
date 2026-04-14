@@ -7,7 +7,6 @@ from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
 from app.domains.account.pin_service import PINService
 from app.services.icm.deps import get_siebel_monthly_report_client, get_siebel_account_client
-from app.services.icm.exceptions import ICMServiceUnavailableError
 from app.domains.monthly_reports.models import (
     ChequeScheduleWindow,
     SD81ListResponse,
@@ -50,13 +49,7 @@ async def start_report(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: MonthlyReportService = Depends(_get_mr_service),
 ) -> dict:
-    try:
-        return await svc.start_report(profile_id=user.user_id)
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    return await svc.start_report(profile_id=user.user_id)
 
 
 @router.get("/{sd81_id}/answers")
