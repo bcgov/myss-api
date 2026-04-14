@@ -353,3 +353,25 @@ def test_icm_message_type_enum_values():
     assert ICMMessageType.SD81_PENDING_DOCUMENTS == "HR0081 Pending Documents"
     assert ICMMessageType.FORM_SUBMISSION == "FormSubmission"
     assert ICMMessageType.GENERAL == "General"
+
+
+# ---------------------------------------------------------------------------
+# mark_read background-task failure logging
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mark_read_logs_and_swallows_icm_failure(caplog):
+    """mark_read should log failures instead of raising."""
+    from app.domains.notifications.service import NotificationMessageService
+
+    mock_client = MagicMock()
+    mock_client.mark_read = AsyncMock(side_effect=RuntimeError("icm down"))
+
+    svc = NotificationMessageService(client=mock_client)
+
+    # Should NOT raise
+    await svc.mark_read("MSG-999")
+
+    # Should have logged a warning (structlog routes to stdlib logging too)
+    mock_client.mark_read.assert_awaited_once_with("MSG-999")

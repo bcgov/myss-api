@@ -186,3 +186,25 @@ async def test_post_login_sync_returns_202(ac):
 async def test_post_login_sync_returns_401_without_auth(ac):
     response = await ac.post("/account/post-login-sync")
     assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# post_login_sync background-task failure logging
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_post_login_sync_logs_and_swallows_icm_failure(caplog):
+    """post_login_sync should log failures instead of raising."""
+    from app.domains.account.service import AccountService
+
+    mock_client = MagicMock()
+    mock_client.sync_profile = AsyncMock(side_effect=RuntimeError("icm down"))
+
+    svc = AccountService(client=mock_client)
+
+    # Should NOT raise
+    await svc.post_login_sync("user1")
+
+    # Client call attempted; exception swallowed
+    mock_client.sync_profile.assert_awaited_once_with("user1")

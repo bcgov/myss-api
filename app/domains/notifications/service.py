@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import structlog
+
 from app.services.icm.notifications import SiebelNotificationClient
 from app.domains.account.pin_service import PINService
 from app.domains.notifications.models import (
@@ -12,6 +14,9 @@ from app.domains.notifications.models import (
     ReplyResponse,
     ICMMessageType,
 )
+
+
+logger = structlog.get_logger()
 
 
 class NotificationMessageService:
@@ -41,7 +46,16 @@ class NotificationMessageService:
         return MessageDetail(**raw)
 
     async def mark_read(self, msg_id: str) -> None:
-        await self._client.mark_read(msg_id)
+        """Mark a message as read. Failures are logged; background task continues."""
+        try:
+            await self._client.mark_read(msg_id)
+        except Exception as exc:
+            logger.warning(
+                "notifications_mark_read_failed",
+                msg_id=msg_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
 
     async def reply(self, msg_id: str, request: ReplyRequest, can_reply: bool) -> ReplyResponse:
         if not can_reply:

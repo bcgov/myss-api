@@ -20,7 +20,13 @@ class AccountService:
         return CaseMemberListResponse(**data)
 
     async def post_login_sync(self, user_id: str) -> None:
+        """Sync profile data from ICM after client login. Failures logged, not propagated."""
         try:
             await self._client.sync_profile(user_id)
-        except Exception:
-            logger.warning("post_login_sync_failed", user_id=user_id, exc_info=True)
+        except Exception as exc:
+            logger.warning(
+                "post_login_sync_failed",
+                user_id=user_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
