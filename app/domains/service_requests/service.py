@@ -1,13 +1,9 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select, update, delete
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.service_requests import SRDraft
 from app.services.icm.service_requests import SiebelSRClient
-from app.services.icm.exceptions import ICMActiveSRConflictError
 from app.domains.account.pin_service import PINService
+from app.domains.service_requests.draft_repository import SRDraftRepository
 from app.domains.service_requests.models import (
     SRSummary,
     SRListResponse,
@@ -25,9 +21,14 @@ from app.domains.service_requests.sr_type_registry import SRTypeRegistry
 
 
 class ServiceRequestService:
-    def __init__(self, sr_client: SiebelSRClient, session: Optional[AsyncSession] = None, pin_service: PINService | None = None):
+    def __init__(
+        self,
+        sr_client: SiebelSRClient,
+        draft_repo: SRDraftRepository | None = None,
+        pin_service: PINService | None = None,
+    ):
         self._client = sr_client
-        self._session = session
+        self._draft_repo = draft_repo
         self._pin_service = pin_service
 
     async def list_srs(self, profile_id: str, page: int = 1, page_size: int = 20) -> SRListResponse:
@@ -49,10 +50,8 @@ class ServiceRequestService:
         result = await self._client.create_sr(sr_type.value, profile_id)
         sr_id = result.get("sr_id", "")
 
-        if self._session:
-            draft = SRDraft(sr_id=sr_id, user_id=user_id, sr_type=sr_type.value)
-            self._session.add(draft)
-            await self._session.commit()
+        if self._draft_repo:
+            await self._draft_repo.create(sr_id=sr_id, user_id=user_id, sr_type=sr_type.value)
 
         return SRDraftResponse(
             sr_id=sr_id,
@@ -91,27 +90,14 @@ class ServiceRequestService:
         self, sr_id: str, answers: dict, page_index: int, user_id: str | None = None
     ) -> Optional[SRDraftResponse]:
         """Update draft_json for an existing sr_drafts row, optionally scoped to a specific user."""
-        if not self._session:
+        if not self._draft_repo:
             return None
 
-        stmt = (
-            update(SRDraft)
-            .where(SRDraft.sr_id == sr_id)
-            .values(
-                draft_json={"answers": answers, "page_index": page_index},
-                updated_at=datetime.now(timezone.utc),
-            )
-            .returning(SRDraft)
+        row = await self._draft_repo.update_form(
+            sr_id=sr_id, answers=answers, page_index=page_index, user_id=user_id
         )
-        if user_id is not None:
-            stmt = stmt.where(SRDraft.user_id == user_id)
-
-        result = await self._session.execute(stmt)
-        row = result.scalar_one_or_none()
         if not row:
-            await self._session.rollback()
             return None
-        await self._session.commit()
 
         draft_data = (
             row.draft_json
@@ -156,12 +142,8 @@ class ServiceRequestService:
         sr_number = result.get("sr_number", "")
 
         # Delete the draft
-        if self._session:
-            stmt = delete(SRDraft).where(SRDraft.sr_id == sr_id)
-            if user_id is not None:
-                stmt = stmt.where(SRDraft.user_id == user_id)
-            await self._session.execute(stmt)
-            await self._session.commit()
+        if self._draft_repo:
+            await self._draft_repo.delete(sr_id=sr_id, user_id=user_id)
 
         return SRSubmitResponse(
             sr_id=sr_id,
@@ -180,15 +162,10 @@ class ServiceRequestService:
 
     async def get_draft(self, sr_id: str, user_id: str | None = None) -> Optional[SRDraftResponse]:
         """Retrieve a draft by sr_id, optionally scoped to a specific user."""
-        if not self._session:
+        if not self._draft_repo:
             return None
 
-        stmt = select(SRDraft).where(SRDraft.sr_id == sr_id)
-        if user_id is not None:
-            stmt = stmt.where(SRDraft.user_id == user_id)
-
-        result = await self._session.execute(stmt)
-        row = result.scalar_one_or_none()
+        row = await self._draft_repo.get(sr_id=sr_id, user_id=user_id)
         if not row:
             return None
 

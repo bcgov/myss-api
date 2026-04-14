@@ -20,6 +20,7 @@ from app.domains.service_requests.models import (
     SRWithdrawRequest,
     SRType,
 )
+from app.domains.service_requests.draft_repository import SRDraftRepository
 from app.domains.service_requests.service import ServiceRequestService
 
 router = APIRouter(prefix="/service-requests", tags=["service-requests"])
@@ -27,7 +28,12 @@ router = APIRouter(prefix="/service-requests", tags=["service-requests"])
 
 def _get_sr_service(session: AsyncSession = Depends(get_session)) -> ServiceRequestService:
     pin_svc = PINService(client=get_siebel_account_client())
-    return ServiceRequestService(sr_client=get_siebel_sr_client(), session=session, pin_service=pin_svc)
+    draft_repo = SRDraftRepository(session=session)
+    return ServiceRequestService(
+        sr_client=get_siebel_sr_client(),
+        draft_repo=draft_repo,
+        pin_service=pin_svc,
+    )
 
 
 @router.get("", response_model=SRListResponse)

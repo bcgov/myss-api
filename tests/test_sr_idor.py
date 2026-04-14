@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.domains.service_requests.draft_repository import SRDraftRepository
 from app.domains.service_requests.models import SRDraftResponse, SRType
 from app.domains.service_requests.service import ServiceRequestService
 from app.models.service_requests import SRDraft
@@ -49,7 +50,8 @@ async def test_get_draft_includes_user_id_in_query():
     """get_draft(sr_id, user_id=...) must include user_id in the ORM WHERE clause."""
     session = _make_session_mock()
     sr_client = AsyncMock()
-    svc = ServiceRequestService(sr_client=sr_client, session=session)
+    repo = SRDraftRepository(session=session)
+    svc = ServiceRequestService(sr_client=sr_client, draft_repo=repo)
 
     await svc.get_draft("SR-001", user_id="user-abc")
 
@@ -69,7 +71,8 @@ async def test_save_form_draft_includes_user_id_in_query():
     """save_form_draft(sr_id, ..., user_id=...) must include user_id in the ORM WHERE clause."""
     session = _make_session_mock()
     sr_client = AsyncMock()
-    svc = ServiceRequestService(sr_client=sr_client, session=session)
+    repo = SRDraftRepository(session=session)
+    svc = ServiceRequestService(sr_client=sr_client, draft_repo=repo)
 
     await svc.save_form_draft(
         "SR-001", answers={"reason": "test"}, page_index=0, user_id="user-abc"
@@ -98,7 +101,8 @@ async def test_submit_sr_delete_includes_user_id_in_query():
     pin_svc = PINService(client=AsyncMock())
     pin_svc.validate = AsyncMock(return_value=True)
 
-    svc = ServiceRequestService(sr_client=sr_client, session=session, pin_service=pin_svc)
+    repo = SRDraftRepository(session=session)
+    svc = ServiceRequestService(sr_client=sr_client, draft_repo=repo, pin_service=pin_svc)
 
     draft = SRDraftResponse(
         sr_id="SR-001",

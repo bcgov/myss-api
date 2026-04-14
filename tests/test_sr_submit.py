@@ -188,7 +188,7 @@ async def test_pdf_generated_for_pdf_requiring_sr_type():
     pin_svc = PINService(client=AsyncMock())
     pin_svc.validate = AsyncMock(return_value=True)
 
-    svc = ServiceRequestService(sr_client=mock_client, session=None, pin_service=pin_svc)
+    svc = ServiceRequestService(sr_client=mock_client, draft_repo=None, pin_service=pin_svc)
 
     # Patch get_draft to return a CRISIS_FOOD draft, and PDF service stub
     with (
@@ -233,7 +233,7 @@ async def test_pdf_not_generated_for_non_pdf_sr_type():
     pin_svc = PINService(client=AsyncMock())
     pin_svc.validate = AsyncMock(return_value=True)
 
-    svc = ServiceRequestService(sr_client=mock_client, session=None, pin_service=pin_svc)
+    svc = ServiceRequestService(sr_client=mock_client, draft_repo=None, pin_service=pin_svc)
 
     with (
         patch.object(svc, "get_draft", return_value=_ASSIST_DRAFT),
