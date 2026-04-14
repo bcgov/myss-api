@@ -32,16 +32,31 @@ class SearchRequest(BaseModel):
     page: int = 1
 
 
+class SearchResult(BaseModel):
+    portal_id: str
+    bceid_guid: str
+    full_name: str
+    case_number: str | None = None
+    case_status: str | None = None
+
+
+class SearchResponse(BaseModel):
+    results: list[SearchResult]
+    total: int
+    page: int
+    page_size: int | None = None
+
+
 def _get_admin_service() -> SiebelAdminClient:
     return get_siebel_admin_client()
 
 
-@support_view_router.post("/search")
+@support_view_router.post("/search", response_model=SearchResponse)
 async def search_clients(
     body: SearchRequest,
     user: UserContext = Depends(require_worker_role),
     admin_client: SiebelAdminClient = Depends(_get_admin_service),
-):
+) -> SearchResponse:
     """Search client profiles by name or SIN. Uses POST to avoid SIN in URL/logs."""
     result = await admin_client.search_profiles(
         first_name=body.first_name,
@@ -49,7 +64,7 @@ async def search_clients(
         sin=body.sin,
         page=body.page,
     )
-    return result
+    return SearchResponse(**result)
 
 
 @support_view_router.post("/tombstone")

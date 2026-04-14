@@ -5,6 +5,7 @@ import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
@@ -20,6 +21,10 @@ from app.services.icm.deps import get_siebel_attachment_client
 from app.services.icm.exceptions import ICMServiceUnavailableError
 
 attachment_router = APIRouter(tags=["attachments"])
+
+
+class AVScanResultResponse(BaseModel):
+    status: str
 
 _MAX_FILE_SIZE = 5_242_880  # 5 MB
 
@@ -98,17 +103,21 @@ async def get_scan_status(
 # ---------------------------------------------------------------------------
 
 
-@attachment_router.post("/internal/av-scan-result", status_code=200)
+@attachment_router.post(
+    "/internal/av-scan-result",
+    response_model=AVScanResultResponse,
+    status_code=200,
+)
 async def av_scan_result(
     body: ScanResultWebhookRequest,
     _: None = Depends(_require_webhook_secret),
     svc: AttachmentService = Depends(_get_attachment_service),
-):
+) -> AVScanResultResponse:
     try:
         await svc.process_scan_result(body.scan_id, body.status, body.scanned_at)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    return {"status": "updated"}
+    return AVScanResultResponse(status="updated")
 
 
 # ---------------------------------------------------------------------------
