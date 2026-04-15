@@ -84,6 +84,19 @@ Business logic lives in `myss-api/app/domains/service_requests/service.py` insid
 
 When modifying an SR type's workflow, the most common change is in `get_form_schema()` (to add/remove fields) or `submit_sr()` (to change what happens at finalization). `get_form_schema()` currently returns a stub schema — the real implementation will load per-type schemas from DB or config.
 
+### Where draft state lives
+
+`ServiceRequestService` delegates draft persistence to
+`SRDraftRepository` (`app/domains/service_requests/draft_repository.py`).
+The repository owns the `sr_drafts` table (read, upsert, delete) and is
+injected into the service via constructor.
+
+Consequence: when modifying how drafts are stored (e.g., adding a new
+column), change the repository's SQL — not the service. When adding a
+new SR workflow step that needs persistence, inject the repository into
+whatever new class owns that step; don't bypass it by running ad-hoc SQL
+from the service.
+
 ---
 
 ### 4. Update Pydantic schemas if the request/response shape changes

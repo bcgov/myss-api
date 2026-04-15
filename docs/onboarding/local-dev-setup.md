@@ -50,31 +50,13 @@ docker ps | grep -E "myss-postgres|myss-redis"
 
 ## Environment Variables
 
-Create a `.env` file in the project root:
+Copy the example env file and edit as needed:
 
-```dotenv
-# Database
-DATABASE_URL=postgresql+asyncpg://myss:myss@localhost:5432/myss
+    cp .env.example .env
 
-# Redis
-REDIS_URL=redis://localhost:6379/0
-
-# Auth
-JWT_SECRET=change-me-for-local-dev-only
-ENVIRONMENT=local
-
-# CORS (comma-separated; SvelteKit dev server runs on 5173)
-CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
-
-# AV webhook (shared secret for antivirus scan result callback)
-AV_WEBHOOK_SECRET=local-dev-av-secret
-
-# Siebel / ICM (leave blank for local dev — app starts without them in local mode)
-ICM_BASE_URL=
-ICM_CLIENT_ID=
-ICM_CLIENT_SECRET=
-ICM_TOKEN_URL=
-```
+The defaults work out of the box for SQLite + mock ICM; only change
+values if you're pointing at a real Postgres, real Redis, or a real
+Siebel environment.
 
 `ENVIRONMENT=local` disables startup validation that enforces secure secrets and requires ICM connection details. In any other environment, `JWT_SECRET` must be a strong secret and all `ICM_*` variables must be set. See `app/config.py` for the full list of validated settings.
 

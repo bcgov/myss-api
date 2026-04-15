@@ -92,18 +92,20 @@ Worker→Admin inheritance: `require_role(UserRole.WORKER)` also accepts `ADMIN`
 ### 5. Write the handler with correct HTTP semantics
 
 ```python
-@router.post("", response_model=YourCreateResponse, status_code=201)
-async def create_your_resource(
-    request: YourCreateRequest,
+@router.get("/{resource_id}", response_model=ResourceResponse)
+async def get_resource(
+    resource_id: str,
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
-    svc: YourDomainService = Depends(_get_your_service),
-) -> YourCreateResponse:
-    try:
-        return await svc.create(request, user_id=user.user_id)
-    except SomeConflictError:
-        raise HTTPException(status_code=409, detail="Resource already exists")
-    except SomeUnavailableError:
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable.")
+    svc: ResourceService = Depends(_get_resource_service),
+) -> ResourceResponse:
+    """Fetch a resource by ID.
+
+    ICM errors (service unavailable, upstream errors) are translated to
+    HTTP responses by the global exception handlers in
+    app/exception_handlers.py. Only catch domain-specific errors in the
+    router when a non-default status code or response shape is needed.
+    """
+    return await svc.get_resource(user.user_id, resource_id)
 ```
 
 Standard HTTP codes used in this codebase:
@@ -236,5 +238,21 @@ FastAPI defaults to 200. Use `status_code=201` on `@router.post` for resource cr
 **Reusing DB models as response models**
 SQLModel table models expose internal fields (foreign keys, internal IDs) and cause serialization issues. Always define separate Pydantic response models in `app/domains/your_domain/models.py`.
 
-**Not handling ICM/Siebel errors**
-Domain services that call Siebel can raise `ICMServiceUnavailableError`, `ICMError`, and domain-specific errors. Catch them explicitly and map to appropriate HTTP codes rather than letting them propagate as 500s.
+### Error Handling
+
+Global exception handlers in `app/exception_handlers.py` translate domain
+exceptions to HTTP responses so routers stay thin:
+
+| Exception | HTTP Status | Notes |
+|-----------|-------------|-------|
+| `ICMServiceUnavailableError` | 503 | Siebel unreachable or circuit breaker open |
+| `ICMActiveSRConflictError` | 409 | Active SR of same type already exists |
+| `ICMSRAlreadyWithdrawnError` | 409 | SR already in withdrawn state |
+| `PINValidationError` | 403 | PIN check failed |
+| `ReportingPeriodClosedError` | 422 | Monthly-report period has closed |
+| `ICMError` (base class) | 502 | Fallthrough for any unmapped ICM subclass |
+
+Do **not** wrap service calls in `try/except ICMServiceUnavailableError`
+in routers — the global handler already catches it. Only add a manual
+try/except when you need a non-default status or a custom response body
+for a specific domain condition.

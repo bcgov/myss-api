@@ -1,5 +1,9 @@
 # Runbook: Promote to Production
 
+> **Scope:** This runbook promotes the API only. The frontend
+> (`myss-web`) has its own promotion runbook. Frontend commands have
+> been removed; do not copy them from earlier revisions.
+
 ## Context
 
 This runbook covers promoting a validated image from staging to the production OpenShift namespace with zero downtime. The API deployment uses a rolling update strategy (`maxUnavailable: 0`, `maxSurge: 1`) so at least 2 replicas are always serving traffic during the rollout.
@@ -46,8 +50,6 @@ What this means in practice:
 5. The process repeats for the second old pod
 6. Total additional capacity held temporarily: 1 extra pod
 
-The frontend deployment (`openshift/frontend-deployment.yaml`) uses the same `maxUnavailable: 0 / maxSurge: 1` strategy on port 3000.
-
 ---
 
 ## Steps
@@ -65,7 +67,6 @@ Verify the image exists in GHCR before proceeding:
 ```bash
 # Confirm image is present (requires GHCR auth)
 docker manifest inspect ghcr.io/${GITHUB_ORG}/myss-api:${IMAGE_TAG}
-docker manifest inspect ghcr.io/${GITHUB_ORG}/myss-frontend:${IMAGE_TAG}
 ```
 
 ### Step 2 — Tag the image as production-ready (optional but recommended)
@@ -88,23 +89,18 @@ Re-run the `Deploy` workflow for the target commit from the GitHub Actions UI. E
 oc set image deployment/myss-api \
   myss-api=ghcr.io/${GITHUB_ORG}/myss-api:${IMAGE_TAG} \
   -n ${PROD_NAMESPACE}
-
-oc set image deployment/myss-frontend \
-  myss-frontend=ghcr.io/${GITHUB_ORG}/myss-frontend:${IMAGE_TAG} \
-  -n ${PROD_NAMESPACE}
 ```
 
 ### Step 4 — Monitor rollout
 
 ```bash
 oc rollout status deployment/myss-api -n ${PROD_NAMESPACE} --timeout=10m
-oc rollout status deployment/myss-frontend -n ${PROD_NAMESPACE} --timeout=10m
 ```
 
 Watch init container completion and pod readiness:
 
 ```bash
-oc get pods -n ${PROD_NAMESPACE} -l app=myss -w
+oc get pods -n ${PROD_NAMESPACE} -l app=myss,component=api -w
 ```
 
 Expect to see: `Init:0/1` → `PodInitializing` → `Running` for each new pod.
@@ -125,25 +121,24 @@ If Alembic fails (exit non-zero), the pod will not start and no traffic is disru
 ### Step 6 — Smoke test production
 
 ```bash
-# Health endpoints
-curl -s https://myss.gov.bc.ca/health          # frontend (via Route)
+# API health endpoint (direct via port-forward)
 oc port-forward deployment/myss-api 8000:8000 -n ${PROD_NAMESPACE} &
-curl -s http://localhost:8000/health           # API direct
+curl -s http://localhost:8000/health
 ```
 
-Manually verify at least one end-to-end flow (login → dashboard) in the production environment.
+Manually verify at least one end-to-end API flow (e.g. authenticated request against a known endpoint) in the production environment.
 
 ---
 
 ## Verification
 
 ```bash
-# Confirm both deployments are on the correct image
-oc get deployment myss-api myss-frontend -n ${PROD_NAMESPACE} \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
+# Confirm the API deployment is on the correct image
+oc get deployment myss-api -n ${PROD_NAMESPACE} \
+  -o jsonpath='{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}'
 
-# Confirm 2 replicas available for each
-oc get deployment myss-api myss-frontend -n ${PROD_NAMESPACE}
+# Confirm 2 replicas available
+oc get deployment myss-api -n ${PROD_NAMESPACE}
 # DESIRED  CURRENT  READY should all show 2
 ```
 

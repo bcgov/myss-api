@@ -131,6 +131,22 @@ Siebel returns structured error responses with an `errorCode` field. `error_mapp
 
 If the response body cannot be parsed as JSON or does not contain `errorCode`, `map_icm_error()` falls back to raising an `httpx.HTTPStatusError` which the retry layer handles.
 
+### HTTP response mapping
+
+The `app/exception_handlers.py` module translates ICM exceptions to
+HTTP responses. Specific subclasses win over the base; any `ICMError`
+not otherwise mapped falls through to 502:
+
+| Exception | HTTP | Client sees |
+|-----------|------|-------------|
+| `ICMServiceUnavailableError` | 503 | "Service temporarily unavailable" |
+| `ICMActiveSRConflictError` | 409 | "Active service request already exists" |
+| `ICMSRAlreadyWithdrawnError` | 409 | "Service request already withdrawn" |
+| `ICMError` (base, fallthrough) | 502 | "Upstream service error" |
+
+Domain errors (`PINValidationError` → 403, `ReportingPeriodClosedError`
+→ 422) are registered in the same module.
+
 ---
 
 ## Authentication with Siebel
@@ -167,6 +183,28 @@ If the response body cannot be parsed as JSON or does not contain `errorCode`, `
 **Credentials source:** Injected at application startup from OpenShift Secrets (see `openshift/secrets-template.yaml`). Never in ConfigMaps or environment variables checked into source control.
 
 **Base URL:** `https://icm.gov.bc.ca/siebel/v1.0` (from `openshift/configmap.yaml`, key `ICM_BASE_URL`).
+
+---
+
+## Mock implementation
+
+For local development and the full test suite, each domain ICM client
+has a mock twin under `app/services/icm/mock/`. Mocks are swapped in
+automatically when:
+
+- `ENVIRONMENT=local`, **and**
+- `ICM_BASE_URL` is empty (or unset).
+
+Wiring happens in `app/services/icm/deps.py` — the dependency factory
+returns the mock if these conditions hold, otherwise the real client.
+
+Mock data lives in `app/services/icm/mock/data.py` (~900 lines of
+deterministic fixtures for three client personas + one worker persona).
+`scripts/seed_db.py` populates the local database with matching data so
+the mock stack is end-to-end consistent.
+
+When adding new ICM methods, also add the mock implementation — tests
+run against mocks, not real Siebel.
 
 ---
 

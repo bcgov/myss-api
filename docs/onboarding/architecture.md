@@ -48,6 +48,17 @@ Every protected page follows this path:
 
 For async operations (e.g., attachment virus scanning, email sending), the domain service enqueues a Celery task rather than blocking the request.
 
+### Repositories for local persistence
+
+Services delegate to thin repository classes when they need to read or
+write the local PostgreSQL database (outside of the Siebel flow). The
+repository isolates SQL from business logic so services can be unit-
+tested without a database.
+
+Current example: `app/domains/service_requests/draft_repository.py`
+(`SRDraftRepository`) owns the `sr_drafts` table. `ServiceRequestService`
+accepts it as a constructor dependency.
+
 ## Authentication Flow
 
 ```
@@ -178,22 +189,33 @@ class FeatureFlagService:
 
 Check the flag in a router or service before executing a code path. Add new flags to `FeatureFlagService` — do not scatter `os.getenv()` calls across domain code.
 
-### Structured logging
+## Cross-cutting concerns
 
-`main.py` configures structlog globally with ISO timestamps, log level, and JSON output:
+- **Global exception handlers** (`app/exception_handlers.py`) translate
+  domain exceptions to HTTP responses. `ICMError` is the base and has a
+  fallthrough handler returning 502; specific subclasses
+  (`ICMServiceUnavailableError` → 503,
+  `ICMActiveSRConflictError` → 409, etc.) are handled more specifically.
+  See `docs/guides/adding-api-endpoint.md` for the full mapping table.
 
-```python
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.stdlib.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ],
-    ...
-)
-```
+- **Rate limiting** (`app/middleware/rate_limiter.py`) wraps
+  credential-accepting endpoints (PIN validation, AO login) via slowapi.
+  Keyed by remote address. Limits: 5/minute for PIN validate,
+  10/minute for AO login. Tests reset the limiter between runs via the
+  autouse `_reset_rate_limiter` fixture in `tests/conftest.py`.
 
-Every module gets a logger with `logger = structlog.get_logger()`. Pass context as keyword arguments (`logger.info("event_name", case_number=..., user_id=...)`) so log aggregators can filter on structured fields. Never concatenate strings into log messages.
+- **Audit middleware** (`app/middleware/audit_middleware.py`) logs all
+  `/admin/*` requests to the `audit_log` table (worker IDIR, resource,
+  client BCEID, request IP). Audit failures are logged but don't block
+  the response.
+
+- **Structured logging** via `structlog` — `main.py` configures structlog
+  globally with ISO timestamps, log level, and JSON rendering. All
+  services use `logger = structlog.get_logger(__name__)`. Pass context
+  as keyword arguments (`logger.info("event_name", case_number=...,
+  user_id=...)`) so log aggregators can filter on structured fields.
+  Never `print`, never bare `logger = logging.getLogger(__name__)`, and
+  never concatenate strings into log messages.
 
 ## OpenShift Deployment
 
