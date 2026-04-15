@@ -4,7 +4,8 @@
 
 Day-to-day operational procedures:
 
-- [Deploy to Test](runbooks/deploy-to-test.md) — Deploy a branch to a test environment
+- [Deploy to Test](runbooks/deploy-to-test.md) — Deploy a branch to an existing test environment
+- [Deploy Test Environment](runbooks/deploy-test-environment.md) — Stand up a full `myss-test` namespace with mock ICM + mock auth + seeded personas
 - [Promote to Production](runbooks/promote-to-prod.md) — Zero-downtime production deployment
 - [Rollback](runbooks/rollback.md) — Revert a bad deployment
 - [PVC Backup & Restore](runbooks/pvc-backup-restore.md) — PostgreSQL and Redis data management

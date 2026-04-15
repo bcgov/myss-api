@@ -188,15 +188,17 @@ Domain errors (`PINValidationError` → 403, `ReportingPeriodClosedError`
 
 ## Mock implementation
 
-For local development and the full test suite, each domain ICM client
-has a mock twin under `app/services/icm/mock/`. Mocks are swapped in
-automatically when:
+For local development, the full test suite, and OpenShift test
+deployments, each domain ICM client has a mock twin under
+`app/services/icm/mock/`. Mocks are swapped in automatically when:
 
-- `ENVIRONMENT=local`, **and**
+- `ENVIRONMENT` is `local` or `test`, **and**
 - `ICM_BASE_URL` is empty (or unset).
 
 Wiring happens in `app/services/icm/deps.py` — the dependency factory
 returns the mock if these conditions hold, otherwise the real client.
+The test deployment overlay (`openshift/overlays/test/`) sets both
+conditions; see `docs/ops/runbooks/deploy-test-environment.md`.
 
 Mock data lives in `app/services/icm/mock/data.py` (~900 lines of
 deterministic fixtures for three client personas + one worker persona).

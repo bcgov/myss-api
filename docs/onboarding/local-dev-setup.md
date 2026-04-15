@@ -109,7 +109,7 @@ python scripts/seed_db.py --reset
 
 ### Mock ICM / Siebel mode
 
-When `ENVIRONMENT=local` and `ICM_BASE_URL` is empty (the default in the `.env` template above), the API automatically uses **mock ICM clients** that return canned data instead of calling the real Siebel REST services. This means:
+When `ENVIRONMENT` is `local` or `test` **and** `ICM_BASE_URL` is empty (the default in the `.env` template above), the API automatically uses **mock ICM clients** that return canned data instead of calling the real Siebel REST services. The same mechanism powers the OpenShift test-namespace deployment — see `docs/ops/runbooks/deploy-test-environment.md`. This means:
 
 - All API endpoints return realistic data without VPN access
 - No Siebel credentials or connectivity required

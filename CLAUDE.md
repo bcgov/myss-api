@@ -93,10 +93,11 @@ All external data access goes through the `app/services/icm/` Siebel REST client
 | `DATABASE_URL` | No | `sqlite+aiosqlite:///./dev.db` | Database connection |
 | `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection |
 | `JWT_SECRET` | Prod only | `change-me-in-production` | JWT signing secret |
-| `ENVIRONMENT` | No | `local` | Environment name |
-| `ICM_BASE_URL` | Prod only | — | Siebel REST base URL |
+| `ENVIRONMENT` | No | `local` | Environment name. `local` or `test` with empty `ICM_BASE_URL` activates mock ICM clients. |
+| `ICM_BASE_URL` | Prod only | — | Siebel REST base URL. Leave empty in local/test to use mock ICM. |
 | `ICM_CLIENT_ID` | Prod only | — | Siebel OAuth client ID |
 | `ICM_CLIENT_SECRET` | Prod only | — | Siebel OAuth client secret |
 | `ICM_TOKEN_URL` | Prod only | — | Siebel OAuth token endpoint |
 | `AV_WEBHOOK_SECRET` | Yes | — | Shared secret for AV scan webhook |
 | `CORS_ALLOWED_ORIGINS` | No | `http://localhost:5173,...` | Comma-separated CORS origins |
+| `SEED_TOKEN_TTL_DAYS` | No | `1` | JWT expiry (days) for tokens produced by `scripts/seed_db.py`. Test-env seed Job uses `90`. |
