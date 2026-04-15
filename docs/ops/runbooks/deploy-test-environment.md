@@ -6,14 +6,28 @@
 
 ## Preconditions
 
-- You have `oc` (or `kubectl`) configured with access to the cluster and
-  permission to create resources in the `myss-test` namespace.
-- The namespace exists: `oc new-project myss-test` (once).
+Application deployers typically do **not** have cluster-admin or project-creator
+rights. The namespace-scoped steps below all work with the `admin` RoleBinding
+in `myss-test`. The one-time cluster-scoped setup is owned by the platform team.
+
+**Platform team (one-time, before deployer can proceed):**
+- Create the `myss-test` namespace with the standard MySS labels
+  (see `docs/ops/setup/openshift-project-setup.md` §1–§3).
+- Apply the default-deny `NetworkPolicy` baseline (§5c of the same doc).
+- Grant the deployer the `admin` RoleBinding in `myss-test`.
+- Confirm back to the deployer: "namespace is ready."
+
+**Deployer (everything after handoff):**
+- `oc` (or `kubectl`) authenticated to the cluster.
+- `oc project myss-test` succeeds (namespace exists and you have access to it).
+  If it fails, stop and file a ticket with the platform team — **do not** attempt
+  `oc new-project`, which requires `self-provisioner`.
 - Required Secrets exist in `myss-test`:
     - `myss-db-secret` — DATABASE_URL, JWT_SECRET
     - `myss-redis-secret` — REDIS_URL
     - `myss-auth-secret` — AUTH_SECRET
-  (Apply from `openshift/secrets-template.yaml` of each repo, filling in values.)
+  (Apply from `openshift/secrets-template.yaml` of each repo, filling in values.
+  Secret creation is namespace-scoped and allowed by the `admin` role.)
 
 ## Step 1 — Apply the API test overlay
 
