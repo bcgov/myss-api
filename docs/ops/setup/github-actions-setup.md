@@ -13,7 +13,7 @@ The repository has two workflows:
 | File | Trigger | Purpose |
 |---|---|---|
 | `.github/workflows/ci.yml` | Push to any branch; PR to `main` | Lint, type-check, and test |
-| `.github/workflows/deploy.yml` | Push to `main` | Build images, push to ghcr.io, deploy to OpenShift |
+| `.github/workflows/deploy.yml` | Push to `main` | Build the API image, push to ghcr.io, deploy to OpenShift |
 
 ---
 
@@ -42,112 +42,39 @@ authenticate against `ghcr.io`. No manual configuration is required for image pu
 
 ---
 
-## 2. CI Pipeline (`ci.yml`)
+## CI workflow (`.github/workflows/ci.yml`)
 
-The CI workflow runs 4 parallel jobs on every push and on pull requests to `main`.
-All 4 jobs must pass before a PR can be merged.
+Two jobs run on every push and pull request:
 
-### Job: `api-lint` — API Lint and Type Check
+### `lint`
+- Installs dependencies via `pip install -e ".[dev]"`
+- Runs `ruff check .`
+- Runs `mypy app/`
 
-Working directory: `myss-api`
+### `test`
+- Installs dependencies via `pip install -e ".[dev]"`
+- Runs `python -m pytest -v`
 
-```
-pip install -e ".[dev]"
-ruff check .
-mypy app/
-```
+Both jobs block merge via branch protection (see below).
 
-Runs `ruff` for linting/formatting and `mypy` for static type checking.
-Python version: 3.12.
-
-### Job: `api-test` — API pytest
-
-Working directory: `myss-api`
-
-```
-pip install -e ".[dev]"
-python -m pytest -v --tb=short
-```
-
-Runs the full test suite with verbose output and short tracebacks.
-Python version: 3.12.
-
-### Job: `web-lint` — Web Lint and Type Check
-
-Working directory: `myss-web`
-
-```
-npm ci
-npm run check
-```
-
-Runs `svelte-check` for TypeScript and Svelte type checking.
-Node version: 20. Uses `package-lock.json` for reproducible installs.
-
-### Job: `web-test` — Web Vitest
-
-Working directory: `myss-web`
-
-```
-npm ci
-npm test
-```
-
-Runs the Vitest unit test suite.
-Node version: 20.
+Python version for both jobs: 3.12 (with `pip` cache).
 
 ---
 
-## 3. Deploy Pipeline (`deploy.yml`)
+## Deploy workflow (`.github/workflows/deploy.yml`)
 
-The deploy workflow runs only on pushes to `main`. It has two sequential jobs.
+On every push to `main`, the workflow:
 
-### Job 1: `build-and-push` — Build and Push Docker Images
+1. Builds the API Docker image using `Dockerfile` at repo root (build context `.`).
+2. Pushes to `ghcr.io/<org>/myss-api:${SHA}` and `:latest` via `docker/build-push-action@v5` (permissions: `contents: read`, `packages: write`; authenticated to GHCR with the runtime-provided `GITHUB_TOKEN`).
+3. Installs `oc` CLI and logs in to OpenShift (`OPENSHIFT_SERVER` / `OPENSHIFT_TOKEN`, TLS verification enabled).
+4. Triggers an `oc set image deployment/myss-api ...` rollout on the target OpenShift namespace (`OPENSHIFT_NAMESPACE`), using the `production` GitHub environment (approval gate — see §5 below).
+5. Waits for rollout with `oc rollout status deployment/myss-api --timeout=5m` — the workflow fails if pods are not healthy within 5 minutes, giving a clear failure signal in the GitHub UI.
 
-**Permissions:** `contents: read`, `packages: write` (write is needed to push to ghcr.io).
+Promotion to production is manual (see `docs/ops/runbooks/promote-to-prod.md`).
 
-**Image names** (from `deploy.yml` env block):
-
-```
-ghcr.io/<org>/<repo>/myss-api:<git-sha>
-ghcr.io/<org>/<repo>/myss-api:latest
-ghcr.io/<org>/<repo>/myss-frontend:<git-sha>
-ghcr.io/<org>/<repo>/myss-frontend:latest
-```
-
-Both `:<git-sha>` (immutable, for deploy) and `:latest` (mutable, for convenience)
-are pushed on every merge to `main`.
-
-Build contexts:
-- API: `./myss-api`
-- Frontend: `./myss-web`
-
-### Job 2: `deploy` — Deploy to OpenShift
-
-**Depends on:** `build-and-push` (must succeed first).
-**Environment:** `production` (GitHub environment, triggers approval gate — see §5 below).
-
-Steps:
-
-1. Install `oc` CLI via `redhat-actions/openshift-tools-installer@v1`
-2. Log in to OpenShift:
-   ```
-   oc login $OPENSHIFT_SERVER --token=$OPENSHIFT_TOKEN
-   ```
-   TLS verification is enabled (`--insecure-skip-tls-verify=false`).
-3. Update image tags on both deployments:
-   ```
-   oc set image deployment/myss-api myss-api=<registry>/<image>:<sha> -n $OPENSHIFT_NAMESPACE
-   oc set image deployment/myss-frontend myss-frontend=<registry>/<image>:<sha> -n $OPENSHIFT_NAMESPACE
-   ```
-4. Wait for rollout:
-   ```
-   oc rollout status deployment/myss-api -n $OPENSHIFT_NAMESPACE --timeout=5m
-   oc rollout status deployment/myss-frontend -n $OPENSHIFT_NAMESPACE --timeout=5m
-   ```
-
-The rollout wait step means the workflow fails if pods do not become healthy within
-5 minutes, giving a clear failure signal in the GitHub UI.
+The frontend (`myss-web`) has its own deploy workflow and image
+(`ghcr.io/<org>/myss-web`). This workflow does not touch it.
 
 ---
 
@@ -155,10 +82,15 @@ The rollout wait step means the workflow fails if pods do not become healthy wit
 
 Configure these in **GitHub → repository → Settings → Branches → Add rule** for the `main` branch.
 
+Required status checks (configure in GitHub Settings → Branches →
+Branch protection rules for `main`):
+
+- `lint`
+- `test`
+
 | Rule | Setting |
 |---|---|
 | Require status checks to pass | Enable |
-| Required status checks | `API — Lint & Type Check`, `API — pytest`, `Web — Lint & Type Check`, `Web — Vitest` |
 | Require branches to be up to date | Enable |
 | Require pull request reviews | Enable |
 | Required approvals | 1 (minimum) |
@@ -205,9 +137,9 @@ To deploy to an additional OpenShift namespace (e.g. `myss-test1`):
 
 After adding secrets and pushing a commit to `main`:
 
-1. Open **Actions** tab — confirm the `CI` workflow shows 4 green jobs
+1. Open **Actions** tab — confirm the `CI` workflow shows both `lint` and `test` jobs green
 2. Confirm the `Deploy` workflow triggers after CI completes
-3. Check `build-and-push` job logs — look for "Pushed" confirmation for both images
+3. Check `build-and-push` job logs — look for "Pushed" confirmation for the API image
 4. Check `deploy` job logs — look for `successfully rolled out` from `oc rollout status`
 
 If the `deploy` job fails at OpenShift login, verify `OPENSHIFT_TOKEN` has not expired
