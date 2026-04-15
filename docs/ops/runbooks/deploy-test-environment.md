@@ -19,7 +19,11 @@
 
 From the `myss-api` repo:
 
-    oc apply -k openshift/overlays/test/
+    oc apply -k openshift/overlays/test/ --load-restrictor=LoadRestrictionsNone
+
+The `--load-restrictor=LoadRestrictionsNone` flag is needed because the
+overlay's `resources:` list references files in the parent directory
+(see comment in `openshift/overlays/test/kustomization.yaml`).
 
 This creates in `myss-test`:
 - Postgres + Redis + API + Celery Deployments (base manifests)
@@ -68,7 +72,7 @@ Or, faster, use `oc create secret`:
 
 From the `myss-web` repo:
 
-    oc apply -k openshift/overlays/test/
+    oc apply -k openshift/overlays/test/ --load-restrictor=LoadRestrictionsNone
 
 This patches `myss-frontend-config` with the mock-auth flags and wires
 `mock-auth-tokens` into the Deployment's `envFrom`.
@@ -95,7 +99,7 @@ floating toolbar) to switch between personas.
 
 ## Rollback
 
-    oc delete -k openshift/overlays/test/ # from each repo
+    oc delete -k openshift/overlays/test/ --load-restrictor=LoadRestrictionsNone # from each repo
 
 Keeps Secrets by default; add `--selector='app=myss'` to scope, or
 `oc delete namespace myss-test` for a full wipe.
@@ -103,6 +107,6 @@ Keeps Secrets by default; add `--selector='app=myss'` to scope, or
 ## Refresh tokens (after 90 days)
 
     oc delete job/myss-seed -n myss-test
-    oc apply -k openshift/overlays/test/ # from myss-api — re-creates seed Job
+    oc apply -k openshift/overlays/test/ --load-restrictor=LoadRestrictionsNone # from myss-api — re-creates seed Job
     # Wait for job to complete, then repeat Steps 2-3 to update the Secret
     oc rollout restart deployment/myss-frontend -n myss-test
