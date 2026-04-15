@@ -23,7 +23,7 @@ def _icm_kwargs() -> dict:
 
 def _use_mock() -> bool:
     settings = get_settings()
-    return settings.environment == "local" and not settings.icm_base_url
+    return settings.environment in ("local", "test") and not settings.icm_base_url
 
 
 def get_siebel_client(cls: Type[T]) -> T:

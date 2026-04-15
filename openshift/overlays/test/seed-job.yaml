@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: myss-seed
+  labels:
+    app: myss
+    component: seed
+spec:
+  # Keep logs around so operators can copy tokens after the job finishes.
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: myss
+        component: seed
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed
+          image: myss-api:latest
+          command: ["python", "scripts/seed_db.py", "--reset"]
+          env:
+            - name: SEED_TOKEN_TTL_DAYS
+              value: "90"
+          envFrom:
+            - secretRef:
+                name: myss-db-secret
+            - configMapRef:
+                name: myss-api-config

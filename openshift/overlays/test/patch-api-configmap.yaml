@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myss-api-config
+data:
+  ICM_BASE_URL: ""
+  ENVIRONMENT: "test"

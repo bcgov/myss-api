@@ -71,10 +71,11 @@ def _get_jwt_secret() -> str:
 
 
 def _make_jwt(sub: str, role: str, *, bceid_guid: str | None = None, idir_username: str | None = None) -> str:
+    ttl_days = int(os.getenv("SEED_TOKEN_TTL_DAYS", "1"))
     payload: dict = {
         "sub": sub,
         "role": role,
-        "exp": datetime.now(UTC) + timedelta(hours=24),
+        "exp": datetime.now(UTC) + timedelta(days=ttl_days),
     }
     if bceid_guid:
         payload["bceid_guid"] = bceid_guid
@@ -510,7 +511,8 @@ async def main(reset: bool = False) -> None:
     carol_jwt = _make_jwt(str(CAROL_USER_ID), 'CLIENT', bceid_guid=CAROL_BCEID)
     worker_jwt = _make_jwt(WORKER_IDIR, 'WORKER', idir_username=WORKER_IDIR)
 
-    print("JWT tokens (valid 24h — paste into Swagger UI Authorize dialog):")
+    ttl_days = int(os.getenv("SEED_TOKEN_TTL_DAYS", "1"))
+    print(f"JWT tokens (valid {ttl_days}d — paste into Swagger UI Authorize dialog):")
     print()
     print(f"  Alice:  {alice_jwt}")
     print()
