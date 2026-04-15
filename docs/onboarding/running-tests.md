@@ -2,18 +2,23 @@
 
 This document covers all test layers, how to run them locally, and what CI requires before a PR can merge.
 
-## Quick Reference
+## Quick reference
 
-| Command | What it runs |
-|---|---|
-| `make test` | Backend pytest + frontend Vitest (in sequence) |
-| `make test-api` | Backend pytest only |
-| `make test-web` | Frontend Vitest only |
-| `make test-e2e` | Playwright end-to-end tests |
-| `make lint-api` | ruff check + mypy (backend) |
-| `make lint-web` | svelte-check (frontend TypeScript) |
+All commands assume you're inside the project venv (see `local-dev-setup.md`).
 
-All `make` commands must be run from the repo root. They use `.venv/bin/python` and `npm` from their respective subdirectories — you do not need to `cd` first.
+| Goal | Command |
+|------|---------|
+| Run all tests | `python -m pytest -v` |
+| Run a single file | `python -m pytest tests/test_account.py -v` |
+| Run a single test | `python -m pytest tests/test_account.py::test_name -v` |
+| Run only unit tests | `python -m pytest tests/domains/ -v` |
+| Run only integration | `python -m pytest tests/integration/ -v` |
+| Lint | `ruff check .` |
+| Type-check | `mypy app/` |
+| Coverage (if installed) | `python -m pytest --cov=app --cov-report=term-missing` |
+
+Frontend tests live in the `myss-web` repo — see that project's
+`running-tests.md` for details.
 
 ## Backend Tests (pytest)
 
@@ -22,14 +27,13 @@ All `make` commands must be run from the repo root. They use `.venv/bin/python` 
 **Run:**
 
 ```bash
-make test-api
-# equivalent to: cd myss-api && .venv/bin/python -m pytest
+python -m pytest
 ```
 
 For more verbose output during development:
 
 ```bash
-cd myss-api && .venv/bin/python -m pytest -v --tb=short
+python -m pytest -v --tb=short
 ```
 
 ### pytest configuration
@@ -101,8 +105,8 @@ Both `respx` and `fakeredis` are installed as part of the `[dev]` extras in `pyp
 ### Lint and type checking
 
 ```bash
-make lint-api
-# equivalent to: cd myss-api && .venv/bin/ruff check . && .venv/bin/mypy app/
+ruff check .
+mypy app/
 ```
 
 - **ruff:** line length 100, target Python 3.12 (configured in `pyproject.toml`)
@@ -110,99 +114,32 @@ make lint-api
 
 Fix ruff errors automatically with `ruff check . --fix`. mypy errors must be resolved manually.
 
-## Frontend Unit Tests (Vitest)
+## Frontend tests
 
-**Location:** `myss-web/src/` — test files co-located with source files (`*.test.ts`)
+Frontend tests (`npm test`, Playwright E2E) are owned by the `myss-web`
+repository. See the `running-tests.md` in that repo.
 
-**Run:**
+## CI checks
 
-```bash
-make test-web
-# equivalent to: cd myss-web && npm test
-# which runs: vitest run
-```
+| Job | What it runs | Blocks merge |
+|-----|--------------|--------------|
+| `lint` | `ruff check .` + `mypy app/` | Yes |
+| `test` | `python -m pytest -v` (full suite) | Yes |
 
-For watch mode during development:
-
-```bash
-cd myss-web && npm run test:watch
-```
-
-### Environment
-
-Vitest uses `jsdom` (version 29.x, declared in `devDependencies`) as the DOM environment. This means browser globals like `document`, `window`, and `fetch` are available in tests without a real browser.
-
-Tests use `@testing-library/svelte` for rendering components and asserting on the DOM. Avoid testing internal component state — test what a user would see or interact with.
-
-### Frontend type checking
-
-```bash
-make lint-web
-# equivalent to: cd myss-web && npm run check
-# which runs: svelte-kit sync && svelte-check --tsconfig ./tsconfig.json
-```
-
-Run this before pushing — CI runs it as a separate job (`web-lint`).
-
-## End-to-End Tests (Playwright)
-
-**Location:** `myss-web/` — Playwright configuration and test files
-
-**Run:**
-
-```bash
-make test-e2e
-# equivalent to: cd myss-web && npm run test:e2e
-# which runs: playwright test
-```
-
-E2E tests start a real browser (Chromium by default) and exercise the full stack — SvelteKit dev server talking to a running FastAPI instance. You need both services running locally before executing E2E tests (see [local-dev-setup.md](local-dev-setup.md)).
-
-E2E tests are not run in CI as part of the standard pipeline (see below). They are intended for local verification of critical user journeys before major releases.
-
-## CI Pipeline
-
-CI is defined in `.github/workflows/ci.yml`. It runs on every push to any branch and on every pull request targeting `main`.
-
-### Jobs that must pass before merge
-
-| CI job | What it runs | Failure blocks merge |
-|---|---|---|
-| `api-lint` — API Lint & Type Check | `ruff check .` then `mypy app/` | Yes |
-| `api-test` — API pytest | `python -m pytest -v --tb=short` | Yes |
-| `web-lint` — Web Lint & Type Check | `npm run check` (svelte-check) | Yes |
-| `web-test` — Web Vitest | `npm test` (vitest run) | Yes |
-
-All four jobs run in parallel. All four must be green for a PR to be mergeable.
-
-CI does **not** currently run Playwright E2E tests or coverage reporting. If you add new E2E coverage targets, coordinate with the team before adding them to the required check list.
-
-### Python version in CI
-
-CI uses Python 3.12 (`actions/setup-python@v5` with `python-version: "3.12"`). Use the same version locally to avoid subtle compatibility differences.
-
-### Node version in CI
-
-CI uses Node 20 (`actions/setup-node@v4` with `node-version: "20"`). npm dependencies are cached using `package-lock.json` as the cache key.
+CI is defined in `.github/workflows/ci.yml`. It runs on every push and every pull request targeting `main`. CI uses Python 3.12 (`actions/setup-python@v5` with `python-version: "3.12"`). Use the same version locally to avoid subtle compatibility differences.
 
 ## Coverage
 
 There is no automated coverage gate in CI yet. To generate a local coverage report:
 
 ```bash
-cd myss-api && .venv/bin/python -m pytest --cov=app --cov-report=term-missing
+python -m pytest --cov=app --cov-report=term-missing
 ```
 
 Install `pytest-cov` first if it is not already present:
 
 ```bash
 pip install pytest-cov
-```
-
-For the frontend, Vitest supports coverage via `@vitest/coverage-v8`:
-
-```bash
-cd myss-web && npx vitest run --coverage
 ```
 
 As the codebase grows, coverage targets will be formalised and added to CI.
