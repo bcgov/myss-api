@@ -26,3 +26,18 @@ Step-by-step guides for common development tasks. Each guide follows a consisten
 - [Adding a Database Migration](adding-database-migration.md) — SQLModel + Alembic workflow
 - [Modifying Auth](modifying-auth.md) — Roles, permissions, and auth flow changes
 - [Updating Siebel Integration](updating-siebel-integration.md) — ICM/Siebel REST API changes
+
+## Updating dependencies
+
+Dependencies are pinned via pip-tools. To update:
+
+1. Edit `pyproject.toml` to change the version constraint.
+2. Recompile the lock files:
+   ```
+   pip-compile --generate-hashes -o requirements.txt pyproject.toml
+   pip-compile --generate-hashes --extra=dev -o requirements-dev.txt pyproject.toml
+   ```
+3. Commit `pyproject.toml`, `requirements.txt`, and `requirements-dev.txt` together.
+
+Production installs should use `pip install -r requirements.txt` (no dev deps).
+Development installs use `pip install -r requirements-dev.txt`.
