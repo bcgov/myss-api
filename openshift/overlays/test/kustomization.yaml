@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../..
+  - seed-job.yaml
+
+patches:
+  - path: patch-api-configmap.yaml
+    target:
+      kind: ConfigMap
+      name: myss-api-config
+
+namespace: myss-test
