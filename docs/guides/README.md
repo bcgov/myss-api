@@ -18,7 +18,6 @@ Step-by-step guides for common development tasks. Each guide follows a consisten
 ### Features
 - [Adding a Notification](adding-notification.md) — Add a new notification or message type
 - [Adding an API Endpoint](adding-api-endpoint.md) — Add a new FastAPI route
-- [Adding a Page](adding-page.md) — Add a new SvelteKit route/page
 - [Adding a Celery Task](adding-celery-task.md) — Add an async background task
 
 ### Infrastructure
