@@ -116,26 +116,24 @@ oc exec deployment/myss-api -n myss-${ENV} -- alembic upgrade head
 
 ## 4. Seed Reference Data
 
-**Note: This step is a placeholder.**
+### Reference data seeding
 
-Reference data seeding (code tables, initial configuration rows, etc.) has not yet
-been scripted. When a seed script is created, it should be committed to
-`myss-api/scripts/seed.py` and documented here.
+A seed script populates the local database with three test personas
+(Alice, Bob, Carol) and a worker persona, plus rate tables used by the
+eligibility estimator.
 
-Until then, any required seed data must be inserted manually:
+Run it after `alembic upgrade head`:
 
-```bash
-oc exec deployment/myss-postgres -n myss-${ENV} -- \
-  psql -U myss -d myss -c "<INSERT statement here>"
-```
+    python scripts/seed_db.py
 
-Or via the API pod if seed logic is embedded in the application:
+The script prints JWT tokens for each persona to stdout — copy these
+into the frontend `.env` file (`MOCK_AUTH_TOKEN_ALICE`, etc.) for local
+development without real BCeID login.
 
-```bash
-oc exec deployment/myss-api -n myss-${ENV} -- python -m app.scripts.seed
-```
-
-Track the seed script requirement in the project backlog.
+Seed data is idempotent for registration sessions and eligibility rate
+tables, but re-running will issue fresh JWTs and case numbers. For a
+clean local state, delete `dev.db` (SQLite) and re-run
+`alembic upgrade head` + `seed_db.py`.
 
 ---
 
@@ -221,5 +219,7 @@ scheme will cause a connection error.
   ```bash
   oc apply -f openshift/redis-deployment.yaml -n myss-${ENV}
   oc apply -f openshift/celery-deployment.yaml -n myss-${ENV}
-  oc apply -f openshift/frontend-deployment.yaml -n myss-${ENV}
   ```
+
+> Frontend deployment is owned by the `myss-web` repository. This
+> runbook only covers the API and its PostgreSQL database.
