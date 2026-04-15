@@ -5,6 +5,7 @@ import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
@@ -17,9 +18,12 @@ from app.domains.attachments.models import (
 )
 from app.domains.attachments.service import AttachmentService
 from app.services.icm.deps import get_siebel_attachment_client
-from app.services.icm.exceptions import ICMServiceUnavailableError
 
 attachment_router = APIRouter(tags=["attachments"])
+
+
+class AVScanResultResponse(BaseModel):
+    status: str
 
 _MAX_FILE_SIZE = 5_242_880  # 5 MB
 
@@ -98,17 +102,21 @@ async def get_scan_status(
 # ---------------------------------------------------------------------------
 
 
-@attachment_router.post("/internal/av-scan-result", status_code=200)
+@attachment_router.post(
+    "/internal/av-scan-result",
+    response_model=AVScanResultResponse,
+    status_code=200,
+)
 async def av_scan_result(
     body: ScanResultWebhookRequest,
     _: None = Depends(_require_webhook_secret),
     svc: AttachmentService = Depends(_get_attachment_service),
-):
+) -> AVScanResultResponse:
     try:
         await svc.process_scan_result(body.scan_id, body.status, body.scanned_at)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    return {"status": "updated"}
+    return AVScanResultResponse(status="updated")
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +135,6 @@ async def submit_attachment(
         return await svc.submit_attachment(sr_id=sr_id, scan_id=body.scan_id, filename=body.filename, user_id=user.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    except ICMServiceUnavailableError:
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable. Please try again later.")
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +148,7 @@ async def download_sr_attachment(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: AttachmentService = Depends(_get_attachment_service),
 ):
-    try:
-        content, filename = await svc.download_sr_attachment(profile_id=user.user_id, sr_id=sr_id)
-    except ICMServiceUnavailableError:
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable. Please try again later.")
+    content, filename = await svc.download_sr_attachment(profile_id=user.user_id, sr_id=sr_id)
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/octet-stream",
@@ -165,12 +168,9 @@ async def download_message_attachment(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: AttachmentService = Depends(_get_attachment_service),
 ):
-    try:
-        content, filename = await svc.download_message_attachment(
-            profile_id=user.user_id, msg_id=msg_id, attachment_id=attachment_id
-        )
-    except ICMServiceUnavailableError:
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable. Please try again later.")
+    content, filename = await svc.download_message_attachment(
+        profile_id=user.user_id, msg_id=msg_id, attachment_id=attachment_id
+    )
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/octet-stream",

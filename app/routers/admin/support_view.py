@@ -2,9 +2,10 @@ from datetime import datetime, timedelta, timezone
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Header, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.cache.redis_client import get_redis
+from app.domains.registration.validators import validate_name, validate_sin
 from app.dependencies.require_worker_role import require_worker_role
 from app.dependencies.require_support_view_session import (
     require_support_view_session,
@@ -31,17 +32,46 @@ class SearchRequest(BaseModel):
     sin: str | None = None
     page: int = 1
 
+    @field_validator("sin")
+    @classmethod
+    def _check_sin(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        return validate_sin(v)
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _check_name(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        return validate_name(v)
+
+
+class SearchResult(BaseModel):
+    portal_id: str
+    bceid_guid: str
+    full_name: str
+    case_number: str | None = None
+    case_status: str | None = None
+
+
+class SearchResponse(BaseModel):
+    results: list[SearchResult]
+    total: int
+    page: int
+    page_size: int | None = None
+
 
 def _get_admin_service() -> SiebelAdminClient:
     return get_siebel_admin_client()
 
 
-@support_view_router.post("/search")
+@support_view_router.post("/search", response_model=SearchResponse)
 async def search_clients(
     body: SearchRequest,
     user: UserContext = Depends(require_worker_role),
     admin_client: SiebelAdminClient = Depends(_get_admin_service),
-):
+) -> SearchResponse:
     """Search client profiles by name or SIN. Uses POST to avoid SIN in URL/logs."""
     result = await admin_client.search_profiles(
         first_name=body.first_name,
@@ -49,7 +79,7 @@ async def search_clients(
         sin=body.sin,
         page=body.page,
     )
-    return result
+    return SearchResponse(**result)
 
 
 @support_view_router.post("/tombstone")

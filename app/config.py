@@ -38,9 +38,6 @@ class Settings(BaseSettings):
     # Webhooks
     av_webhook_secret: str = ""
 
-    # SIN encryption
-    sin_hmac_key: str = "change-me-in-production"
-
     # Feature flags
     feature_t5_disabled: bool = False
 

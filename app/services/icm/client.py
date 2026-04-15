@@ -173,7 +173,11 @@ class ICMClient:
         async with self._token_lock:
             if self._token is None or time.monotonic() >= self._token_expiry:
                 await self._fetch_token()
-            return self._token  # type: ignore[return-value]
+            if self._token is None:
+                # _fetch_token should have either set _token or raised;
+                # this guard makes the invariant explicit for type checkers.
+                raise ICMServiceUnavailableError("Failed to obtain OAuth token")
+            return self._token
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client."""

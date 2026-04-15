@@ -20,6 +20,7 @@ from app.routers.admin.ao import ao_router
 from app.middleware.audit_middleware import AuditMiddleware
 from app.auth.dependencies import get_current_user, require_role
 from app.auth.models import UserContext, UserRole
+from app.config import get_settings
 
 structlog.configure(
     processors=[
@@ -61,10 +62,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_raw_origins = os.getenv(
-    "CORS_ALLOWED_ORIGINS",
-    "http://localhost:5173,http://localhost:3000",
-)
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+from app.middleware.rate_limiter import limiter
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+_settings = get_settings()
+_raw_origins = os.getenv("CORS_ALLOWED_ORIGINS")
+if _raw_origins is None:
+    if _settings.environment in ("local", "test"):
+        _raw_origins = "http://localhost:5173,http://localhost:3000"
+    else:
+        _raw_origins = ""
 _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
@@ -97,15 +108,21 @@ from app.exception_handlers import (
     icm_conflict_handler,
     icm_sr_withdrawn_handler,
     pin_validation_handler,
+    icm_error_handler,
+    reporting_period_closed_handler,
 )
 from app.services.icm.exceptions import (
     ICMServiceUnavailableError,
     ICMActiveSRConflictError,
     ICMSRAlreadyWithdrawnError,
     PINValidationError,
+    ICMError,
 )
+from app.domains.monthly_reports.service import ReportingPeriodClosedError
 
 app.add_exception_handler(ICMServiceUnavailableError, icm_unavailable_handler)
 app.add_exception_handler(ICMActiveSRConflictError, icm_conflict_handler)
 app.add_exception_handler(ICMSRAlreadyWithdrawnError, icm_sr_withdrawn_handler)
 app.add_exception_handler(PINValidationError, pin_validation_handler)
+app.add_exception_handler(ICMError, icm_error_handler)
+app.add_exception_handler(ReportingPeriodClosedError, reporting_period_closed_handler)

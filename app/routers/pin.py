@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
+from app.middleware.rate_limiter import limiter
 from app.services.icm.deps import get_siebel_account_client
-from app.services.icm.exceptions import ICMServiceUnavailableError
 from app.domains.account.models import (
     PINValidateRequest,
     PINChangeRequest,
@@ -20,18 +20,14 @@ def _get_pin_service() -> PINService:
 
 
 @pin_router.post("/validate", status_code=200)
+@limiter.limit("5/minute")
 async def validate_pin(
-    request: PINValidateRequest,
+    request: Request,
+    payload: PINValidateRequest,
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: PINService = Depends(_get_pin_service),
 ):
-    try:
-        valid = await svc.validate(user.user_id, request.pin)
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    valid = await svc.validate(user.user_id, payload.pin)
     if not valid:
         raise HTTPException(status_code=403, detail="Invalid PIN")
     return {"status": "valid"}
@@ -47,11 +43,6 @@ async def change_pin(
         await svc.change_pin(user.user_id, request.current_pin, request.new_pin)
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
     return {"status": "changed"}
 
 
@@ -61,13 +52,7 @@ async def reset_request(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: PINService = Depends(_get_pin_service),
 ):
-    try:
-        await svc.request_reset(user.user_id, request.email)
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    await svc.request_reset(user.user_id, request.email)
     return {"status": "accepted"}
 
 
@@ -81,9 +66,4 @@ async def reset_confirm(
         await svc.confirm_reset(request.token, request.new_pin)
     except ValueError as e:
         raise HTTPException(status_code=410, detail=str(e))
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
     return {"status": "reset"}

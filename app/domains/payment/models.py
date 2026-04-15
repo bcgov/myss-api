@@ -56,8 +56,8 @@ class PaymentInfoResponse(BaseModel):
     mis_data: MISPaymentData
 
 
-# ChequeScheduleResponse is the same shape as ChequeScheduleWindow from monthly_reports
-from app.domains.monthly_reports.models import ChequeScheduleWindow
+# ChequeScheduleResponse is the same shape as ChequeScheduleWindow (shared DTO)
+from app.domains.shared.models import ChequeScheduleWindow
 ChequeScheduleResponse = ChequeScheduleWindow
 
 

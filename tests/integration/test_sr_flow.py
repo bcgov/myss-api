@@ -21,6 +21,7 @@ from app.domains.service_requests.models import (
     DynamicFormType, DynamicFormPage, DynamicFormField, SRListResponse, SRSummary,
     SRDetailResponse,
 )
+from app.domains.service_requests.draft_repository import SRDraftRepository
 from app.domains.service_requests.service import ServiceRequestService
 from app.routers.service_requests import _get_sr_service
 
@@ -181,7 +182,8 @@ async def test_full_sr_lifecycle():
     session = _mock_session()
     pin_svc = PINService(client=AsyncMock())
     pin_svc.validate = AsyncMock(return_value=True)
-    svc = ServiceRequestService(sr_client=client, session=session, pin_service=pin_svc)
+    repo = SRDraftRepository(session=session)
+    svc = ServiceRequestService(sr_client=client, draft_repo=repo, pin_service=pin_svc)
 
     app.dependency_overrides[_get_sr_service] = lambda: svc
 
@@ -243,7 +245,7 @@ async def test_sr_detail_not_found():
     """GET /service-requests/{sr_id} returns 404 when SR does not exist."""
     client = AsyncMock(spec=SiebelSRClient)
     client.get_sr_detail = AsyncMock(return_value=None)
-    svc = ServiceRequestService(sr_client=client, session=None)
+    svc = ServiceRequestService(sr_client=client, draft_repo=None)
 
     app.dependency_overrides[_get_sr_service] = lambda: svc
 
@@ -262,7 +264,7 @@ async def test_sr_detail_not_found():
 async def test_submit_declaration_not_accepted_rejected():
     """POST /service-requests/{sr_id}/submit returns 422 when declaration_accepted is false."""
     client = AsyncMock(spec=SiebelSRClient)
-    svc = ServiceRequestService(sr_client=client, session=None)
+    svc = ServiceRequestService(sr_client=client, draft_repo=None)
 
     app.dependency_overrides[_get_sr_service] = lambda: svc
 
@@ -296,7 +298,7 @@ async def test_sr_detail_returned_successfully():
         "answers": {"dietary_need": "gluten-free"},
         "attachments": ["doc1.pdf"],
     })
-    svc = ServiceRequestService(sr_client=client, session=None)
+    svc = ServiceRequestService(sr_client=client, draft_repo=None)
 
     app.dependency_overrides[_get_sr_service] = lambda: svc
 

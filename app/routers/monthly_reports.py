@@ -1,13 +1,10 @@
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
 from app.domains.account.pin_service import PINService
 from app.services.icm.deps import get_siebel_monthly_report_client, get_siebel_account_client
-from app.services.icm.exceptions import ICMServiceUnavailableError
 from app.domains.monthly_reports.models import (
     ChequeScheduleWindow,
     SD81ListResponse,
@@ -38,7 +35,7 @@ async def get_current_period(
 
 @router.get("", response_model=SD81ListResponse)
 async def list_reports(
-    days_ago: int = Query(365, ge=1),
+    days_ago: int = Query(365, ge=1, le=3650, description="Lookback window in days (max 10 years)"),
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: MonthlyReportService = Depends(_get_mr_service),
 ) -> SD81ListResponse:
@@ -50,13 +47,7 @@ async def start_report(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: MonthlyReportService = Depends(_get_mr_service),
 ) -> dict:
-    try:
-        return await svc.start_report(profile_id=user.user_id)
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    return await svc.start_report(profile_id=user.user_id)
 
 
 @router.get("/{sd81_id}/answers")
@@ -85,21 +76,9 @@ async def submit_report(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: MonthlyReportService = Depends(_get_mr_service),
 ) -> SD81SubmitResponse:
-    # Inline period-closed check
-    period = await svc.get_current_period(user.user_id)
-    close = period.period_close_date
-    if close.tzinfo is None:
-        close = close.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) > close:
-        raise HTTPException(
-            status_code=422,
-            detail="Submission period is closed for this benefit month",
-        )
-
-    # Key player check: stub — accept all (will be implemented in Phase 8)
-
-    # PINValidationError → 403 and ICMServiceUnavailableError → 503
-    # are handled by global exception handlers in app/exception_handlers.py
+    # ReportingPeriodClosedError → 422, PINValidationError → 403, and
+    # ICMServiceUnavailableError → 503 are handled by global exception
+    # handlers in app/exception_handlers.py
     return await svc.submit_report(
         sd81_id=sd81_id,
         pin=request.pin,

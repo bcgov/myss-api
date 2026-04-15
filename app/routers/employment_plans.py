@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth.dependencies import require_role
 from app.auth.models import UserContext, UserRole
 from app.services.icm.deps import get_siebel_ep_client
-from app.services.icm.exceptions import ICMServiceUnavailableError
 from app.domains.employment_plans.models import (
     EPListResponse, EPDetailResponse, EPSignRequest, EPSignResponse,
 )
@@ -21,13 +20,7 @@ async def list_employment_plans(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: EmploymentPlanService = Depends(_get_ep_service),
 ) -> EPListResponse:
-    try:
-        return await svc.list_plans(user.user_id)
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    return await svc.list_plans(user.user_id)
 
 
 @ep_router.get("/{ep_id}", response_model=EPDetailResponse)
@@ -36,13 +29,7 @@ async def get_employment_plan_detail(
     user: UserContext = Depends(require_role(UserRole.CLIENT)),
     svc: EmploymentPlanService = Depends(_get_ep_service),
 ) -> EPDetailResponse:
-    try:
-        return await svc.get_detail(str(ep_id))
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )
+    return await svc.get_detail(str(ep_id))
 
 
 @ep_router.post("/{ep_id}/sign", response_model=EPSignResponse)
@@ -61,8 +48,3 @@ async def sign_employment_plan(
         )
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
-    except ICMServiceUnavailableError:
-        raise HTTPException(
-            status_code=503,
-            detail="Service temporarily unavailable. Please try again later.",
-        )

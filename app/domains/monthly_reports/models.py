@@ -4,6 +4,17 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.domains.shared.models import ChequeScheduleWindow
+
+__all__ = [
+    "ChequeScheduleWindow",
+    "SD81Status",
+    "SD81Summary",
+    "SD81ListResponse",
+    "SD81SubmitRequest",
+    "SD81SubmitResponse",
+]
+
 
 class SD81Status(str, Enum):
     PARTIAL = "PRT"
@@ -11,13 +22,6 @@ class SD81Status(str, Enum):
     RESTARTED = "RST"
     RESUBMITTED = "RES"
     PENDING_DOCUMENTS = "PND"
-
-
-class ChequeScheduleWindow(BaseModel):
-    benefit_month: date
-    income_date: date
-    cheque_issue_date: date
-    period_close_date: datetime  # Friday 4PM
 
 
 class SD81Summary(BaseModel):

@@ -312,6 +312,39 @@ async def test_expired_session_returns_401(ac, fake_redis):
 # ---------------------------------------------------------------------------
 
 
+async def test_search_rejects_invalid_sin(ac):
+    """Invalid (non-Luhn) SIN returns 422."""
+    token = make_token(role="WORKER", idir_username="jdoe")
+    response = await ac.post(
+        "/admin/support-view/search",
+        json={"sin": "000000001"},  # invalid Luhn checksum
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422
+
+
+async def test_search_rejects_invalid_name(ac):
+    """Invalid name (digits) returns 422."""
+    token = make_token(role="WORKER", idir_username="jdoe")
+    response = await ac.post(
+        "/admin/support-view/search",
+        json={"first_name": "Jane123"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 422
+
+
+async def test_search_accepts_valid_sin(ac, mock_admin_client):
+    """A valid Luhn SIN is accepted (046454286 is a standard test SIN)."""
+    token = make_token(role="WORKER", idir_username="jdoe")
+    response = await ac.post(
+        "/admin/support-view/search",
+        json={"sin": "046454286"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+
+
 async def test_search_paginated(ac, mock_admin_client):
     """Verify page param is forwarded to the admin client."""
     token = make_token(role="WORKER", idir_username="jdoe")

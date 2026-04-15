@@ -3,7 +3,7 @@
 from typing import Any
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 
 from app.auth.models import UserContext
 from app.cache.redis_client import get_redis
@@ -12,6 +12,7 @@ from app.dependencies.require_ao_session import (
     set_ao_session,
 )
 from app.dependencies.require_worker_role import require_worker_role
+from app.middleware.rate_limiter import limiter
 from app.models.ao_registration import (
     AOLoginRequest,
     AORegistrationSession,
@@ -60,7 +61,9 @@ def _verify_session_ownership(
 
 
 @ao_router.post("/login", response_model=AOSessionToken)
+@limiter.limit("10/minute")
 async def ao_login(
+    request: Request,
     body: AOLoginRequest,
     user: UserContext = Depends(require_worker_role),
     ao_service: AORegistrationService = Depends(_get_ao_registration_service),
