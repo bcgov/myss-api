@@ -1,17 +1,23 @@
 # Runbook: Deploy to Test Environment
 
+> **Scope:** This runbook deploys the API only. The frontend
+> (`myss-web`) has its own deploy runbook in that repository. The
+> commands below intentionally omit any `myss-frontend` / `myss-web`
+> resources — do not copy frontend commands from earlier revisions of
+> this document.
+
 ## Context
 
 This runbook covers deploying a specific commit to a test OpenShift namespace. Two options are provided: triggering the GitHub Actions workflow (preferred) or running manual `oc` commands when you need to deploy a specific SHA without merging to `main`.
 
-Images are published to `ghcr.io/<org>/myss-api` and `ghcr.io/<org>/myss-frontend` and tagged with both the full Git SHA and `latest`.
+The API image is published to `ghcr.io/<org>/myss-api` and tagged with both the full Git SHA and `latest`.
 
 ---
 
 ## Prerequisites
 
 - `oc` CLI installed and authenticated to the target namespace
-- The commit SHA you want to deploy has already been built and pushed to GHCR (check the `Build & Push Docker Images` job in GitHub Actions)
+- The commit SHA you want to deploy has already been built and pushed to GHCR (check the `Build & Push Docker Image` job in GitHub Actions)
 - You have `OPENSHIFT_NAMESPACE` set in your shell, or substitute it inline
 
 ```bash
@@ -26,8 +32,8 @@ export IMAGE_TAG=<full-git-sha>         # 40-char SHA from git log
 
 The `Deploy` workflow (`.github/workflows/deploy.yml`) triggers automatically on push to `main`. It:
 
-1. Builds and pushes both images tagged with `$GITHUB_SHA` and `latest`
-2. Calls `oc set image` for `deployment/myss-api` and `deployment/myss-frontend`
+1. Builds and pushes the API image tagged with `$GITHUB_SHA` and `latest`
+2. Calls `oc set image` for `deployment/myss-api`
 3. Waits up to 5 minutes for rollout to complete with `oc rollout status --timeout=5m`
 
 To trigger for a specific SHA without a new merge, push a tag or manually re-run the workflow from the GitHub Actions UI (`Actions` → `Deploy` → `Run workflow`).
@@ -54,19 +60,10 @@ oc set image deployment/myss-api \
   -n ${OPENSHIFT_NAMESPACE}
 ```
 
-### Step 2 — Update the frontend image
-
-```bash
-oc set image deployment/myss-frontend \
-  myss-frontend=ghcr.io/${GITHUB_ORG}/myss-frontend:${IMAGE_TAG} \
-  -n ${OPENSHIFT_NAMESPACE}
-```
-
-### Step 3 — Monitor rollout
+### Step 2 — Monitor rollout
 
 ```bash
 oc rollout status deployment/myss-api -n ${OPENSHIFT_NAMESPACE} --timeout=5m
-oc rollout status deployment/myss-frontend -n ${OPENSHIFT_NAMESPACE} --timeout=5m
 ```
 
 A successful rollout prints: `successfully rolled out`
@@ -88,36 +85,20 @@ curl -s http://localhost:8000/health
 # Expected: {"status": "ok"} or similar 200 response
 ```
 
-### Health check — Frontend
-
-The frontend exposes `GET /health` on port 3000:
-
-```bash
-oc port-forward deployment/myss-frontend 3000:3000 -n ${OPENSHIFT_NAMESPACE} &
-curl -s http://localhost:3000/health
-# Expected: 200 OK
-```
-
 ### Confirm running image SHA
 
 ```bash
 oc get deployment/myss-api -n ${OPENSHIFT_NAMESPACE} \
   -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
-
-oc get deployment/myss-frontend -n ${OPENSHIFT_NAMESPACE} \
-  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 ```
 
-Both should show your `${IMAGE_TAG}`.
+This should show your `${IMAGE_TAG}`.
 
 ### Tail logs
 
 ```bash
 # API logs
 oc logs -f deployment/myss-api -n ${OPENSHIFT_NAMESPACE}
-
-# Frontend logs
-oc logs -f deployment/myss-frontend -n ${OPENSHIFT_NAMESPACE}
 
 # Alembic init container logs (most recent pod)
 POD=$(oc get pods -n ${OPENSHIFT_NAMESPACE} -l app=myss,component=api \
